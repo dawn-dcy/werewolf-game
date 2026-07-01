@@ -9,7 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.dawndcy.online">🌐 在线体验：www.dawndcy.online</a>
+  <a href="https://www.dawndcy.online">🌐 在线体验</a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/dawndcy/werewolf-game">📦 GitHub 仓库</a>
 </p>
 
 ---
