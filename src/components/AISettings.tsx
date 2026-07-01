@@ -306,4 +306,4 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
   );
 };
 
-export default AISetting
+export default AISettings
