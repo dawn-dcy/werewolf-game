@@ -15,7 +15,7 @@ import { GameState, Player, Role, DiscussionMessage } from '../types/game';
 export interface AIConfig {
   apiUrl: string;       // API endpoint, e.g. https://api.openai.com/v1/chat/completions
   apiKey: string;       // API key
-  model: string;        // Model name, e.g. gpt-4o, gpt-3.5-turbo, deepseek-chat
+  model: string;        // Model name, e.g. gpt-4o, gpt-3.5-turbo, deepseek-v4-flash
   maxTokens: number;    // Max tokens per response
   temperature: number;  // 0.0-2.0
   thinking: boolean;    // 是否开启思考模式（DeepSeek 等模型支持）
@@ -24,7 +24,7 @@ export interface AIConfig {
 const DEFAULT_CONFIG: AIConfig = {
   apiUrl: 'https://api.deepseek.com',
   apiKey: '',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   maxTokens: 8192,
   temperature: 1,
   thinking: true,

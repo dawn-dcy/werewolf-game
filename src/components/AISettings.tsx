@@ -174,7 +174,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               type="text"
               value={config.model}
               onChange={(e) => setConfig({ ...config, model: e.target.value })}
-              placeholder="deepseek-chat / gpt-4o / qwen3.7-plus"
+              placeholder="deepseek-v4-flash / gpt-4o / qwen3.7-plus"
               className="w-full bg-primary-800/60 border border-primary-700/50 rounded-xl px-4 py-2.5 text-primary-200 text-sm placeholder-primary-600 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/30 transition-all"
             />
           </div>
@@ -254,8 +254,8 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
           <div className="bg-primary-800/30 border border-primary-700/30 rounded-xl p-3">
             <h4 className="text-xs font-bold text-primary-400 mb-1">💡 配置说明</h4>
             <ul className="text-[10px] text-primary-500 space-y-1">
-              <li>• 默认使用 DeepSeek deepseek-chat，已开启思考模式</li>
-              <li>• DeepSeek: 填 https://api.deepseek.com，模型填 deepseek-chat</li>
+              <li>• 默认使用 DeepSeek deepseek-v4-flash，已开启思考模式</li>
+              <li>• DeepSeek: 填 https://api.deepseek.com，模型填 deepseek-v4-flash</li>
               <li>• OpenAI: 填 https://api.openai.com，模型填 gpt-4o</li>
               <li>• 通义千问: 填 https://dashscope.aliyuncs.com/compatible-mode/v1</li>
               <li>• 智谱 GLM: 填 https://open.bigmodel.cn/api/paas/v4/chat/completions</li>
@@ -306,4 +306,4 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
   );
 };
 
-export default AISettings;
+export default AISetting
