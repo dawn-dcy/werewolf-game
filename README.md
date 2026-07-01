@@ -66,7 +66,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/dawndcy/werewolf-game.git
+git clone https://github.com/dawn-dcy/werewolf-game.git
 cd werewolf-game
 
 # 安装依赖
