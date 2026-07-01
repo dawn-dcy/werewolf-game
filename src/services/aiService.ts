@@ -22,12 +22,12 @@ export interface AIConfig {
 }
 
 const DEFAULT_CONFIG: AIConfig = {
-  apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  apiUrl: 'https://api.deepseek.com',
   apiKey: '',
-  model: 'deepseek-v4-flash',
-  maxTokens: 4096,
-  temperature: 0.8,
-  thinking: false,
+  model: 'deepseek-chat',
+  maxTokens: 8192,
+  temperature: 1,
+  thinking: true,
 };
 
 let currentConfig: AIConfig = { ...DEFAULT_CONFIG };

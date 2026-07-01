@@ -141,11 +141,11 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               type="text"
               value={config.apiUrl}
               onChange={(e) => setConfig({ ...config, apiUrl: e.target.value })}
-              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              placeholder="https://api.deepseek.com"
               className="w-full bg-primary-800/60 border border-primary-700/50 rounded-xl px-4 py-2.5 text-primary-200 text-sm placeholder-primary-600 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/30 transition-all"
             />
             <p className="text-[10px] text-primary-600 mt-1">
-              支持 OpenAI 兼容接口。可直接填 Base URL（如 https://api.openai.com），系统会自动补全 /v1/chat/completions 路径
+              支持 OpenAI 兼容接口。可直接填 Base URL（如 https://api.deepseek.com），系统会自动补全 /v1/chat/completions 路径
             </p>
           </div>
 
@@ -174,7 +174,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               type="text"
               value={config.model}
               onChange={(e) => setConfig({ ...config, model: e.target.value })}
-              placeholder="qwen3.7-plus / gpt-4o / deepseek-chat"
+              placeholder="deepseek-chat / gpt-4o / qwen3.7-plus"
               className="w-full bg-primary-800/60 border border-primary-700/50 rounded-xl px-4 py-2.5 text-primary-200 text-sm placeholder-primary-600 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/30 transition-all"
             />
           </div>
@@ -188,7 +188,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               <input
                 type="number"
                 value={config.maxTokens}
-                onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) || 4096 })}
+                onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) || 8192 })}
                 min={1}
                 max={32768}
                 className="w-full bg-primary-800/60 border border-primary-700/50 rounded-xl px-3 py-2 text-primary-200 text-sm focus:outline-none focus:border-accent-500/50 transition-all"
@@ -201,7 +201,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               <input
                 type="number"
                 value={config.temperature}
-                onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) || 0.8 })}
+                onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) || 1 })}
                 min={0}
                 max={2}
                 step={0.1}
@@ -254,10 +254,10 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
           <div className="bg-primary-800/30 border border-primary-700/30 rounded-xl p-3">
             <h4 className="text-xs font-bold text-primary-400 mb-1">💡 配置说明</h4>
             <ul className="text-[10px] text-primary-500 space-y-1">
-              <li>• 默认使用通义千问 qwen3.7-plus，支持思考模式</li>
-              <li>• 通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1</li>
-              <li>• OpenAI: 填 https://api.openai.com，模型填 gpt-4o</li>
+              <li>• 默认使用 DeepSeek deepseek-chat，已开启思考模式</li>
               <li>• DeepSeek: 填 https://api.deepseek.com，模型填 deepseek-chat</li>
+              <li>• OpenAI: 填 https://api.openai.com，模型填 gpt-4o</li>
+              <li>• 通义千问: 填 https://dashscope.aliyuncs.com/compatible-mode/v1</li>
               <li>• 智谱 GLM: 填 https://open.bigmodel.cn/api/paas/v4/chat/completions</li>
               <li>• 未配置 API 时将使用本地策略作为后备方案</li>
             </ul>
