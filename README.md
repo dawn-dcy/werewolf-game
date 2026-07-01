@@ -28,6 +28,61 @@
 
 ---
 
+## 📖 游戏流程
+
+### 第一步：配置大模型 API（必读）
+
+> ⚠️ **首次使用请务必先配置 API！** 否则 AI 玩家将使用随机策略，游戏体验会大打折扣。
+
+点击首页底部的 **「配置大模型 API」** 按钮，填入你的 API 信息：
+
+<img src="public/screenshots/01-lobby.png" alt="游戏大厅" width="600" />
+
+**设置页面**中填写：
+
+- **API 地址**：任意 OpenAI 兼容接口（默认百炼 dashscope）
+- **API 密钥**：你的 API Key
+- **模型名称**：如 `deepseek-v4-flash`、`gpt-4o`、`qwen-plus`
+- 点击 **「测试连接」** 确认配置正确，再点击 **「保存配置」**
+
+<img src="public/screenshots/02-settings.png" alt="API 配置" width="600" />
+
+> 💡 支持 DeepSeek、通义千问、GPT、智谱 GLM 等任意兼容 OpenAI Chat Completions 格式的模型。
+
+---
+
+### 第二步：进入游戏
+
+保存 API 配置后回到首页，输入你的昵称，点击 **「进入游戏」**：
+
+<img src="public/screenshots/03-ready.png" alt="准备进入" width="600" />
+
+---
+
+### 第三步：选择游戏人数
+
+根据自己的喜好选择 **6 - 12 人局**，系统会自动为所有 AI 玩家分配身份：
+
+<img src="public/screenshots/05-setup.png" alt="选择人数" width="600" />
+
+---
+
+### 第四步：开始对战
+
+游戏按照 **夜晚 → 白天 → 投票 → 下一轮** 的标准狼人杀流程进行。每轮 AI 玩家会：
+- 🐺 狼人夜间投票刀人
+- 🔮 预言家查验身份
+- 🧪 女巫使用解药/毒药
+- 🛡️ 守卫守护目标
+- 💬 白天自由发言讨论
+- 🗳️ 全体投票放逐
+
+<img src="public/screenshots/04-gameplay.png" alt="游戏中" width="600" />
+
+点击右上角 👁️ 按钮可随时查看**上帝视角**，了解所有玩家的身份和行动记录。
+
+---
+
 ## 🎮 游戏角色
 
 | 角色 | 阵营 | 技能 |
