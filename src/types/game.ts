@@ -25,6 +25,7 @@ export type GamePhase =
   | 'night-result'
   | 'day-discussion'
   | 'day-vote'
+  | 'day-last-words'
   | 'day-result'
   | 'tie-speech'
   | 'hunter-shoot'
@@ -120,6 +121,8 @@ export interface GameState {
   _isGeneratingSummary: boolean;
   // 猎人开枪待处理状态（人类玩家猎人死亡时暂停）
   hunterShootPending: HunterShootPending | null;
+  // 遗言
+  lastWordsPlayerId: string | null;     // 被投票放逐、需要发表遗言的玩家ID
   // MVP 评选结果
   mvpPlayerId: string | null;
   mvpReason: string | null;

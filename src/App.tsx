@@ -106,8 +106,8 @@ const App: React.FC = () => {
   const isNightPhase = gameState.phase.startsWith('night-');
   const userPlayer = gameState.players.find(p => !p.isAI)!;
 
-  // Dead player → spectator view (always with GodView)
-  if (!userPlayer.isAlive) {
+  // Dead player → spectator view, unless they need to say last words
+  if (!userPlayer.isAlive && gameState.phase !== 'day-last-words') {
     return (
       <div className="relative min-h-screen">
         <SpectatorView gameState={gameState} onAdvance={advancePhase} />

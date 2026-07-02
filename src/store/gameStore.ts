@@ -85,6 +85,7 @@ const createEmptyState = (): GameState => ({
   nightActions: [],
   _isGeneratingSummary: false,
   hunterShootPending: null,
+  lastWordsPlayerId: null,
   mvpPlayerId: null,
   mvpReason: null,
   _mvpSelected: false,
@@ -249,6 +250,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (state.phase === 'night-summary') {
       set({ gameState: { ...state, phase: 'night-werewolf', _isGeneratingSummary: false } });
       setTimeout(() => autoSkipPhases(), 400);
+      return;
+    }
+
+    // day-last-words → day-result（遗言发表后进入投票结果展示）
+    if (state.phase === 'day-last-words') {
+      set({ gameState: { ...state, phase: 'day-result', lastWordsPlayerId: null } });
       return;
     }
 
@@ -1174,9 +1181,10 @@ async function processDayVote() {
               players: updatedPlayers,
               logs,
               phase: 'hunter-shoot',
+              lastWordsPlayerId: exiledId,
               hunterShootPending: {
                 hunterId: exiledId,
-                returnPhase: 'day-result',
+                returnPhase: 'day-last-words',
                 updatedPlayers,
                 logs,
                 nightActions: [...(state.nightActions || [])],
@@ -1223,7 +1231,8 @@ async function processDayVote() {
       ...state,
       players: updatedPlayers,
       logs: dedupeLogs(logs),
-      phase: 'day-result',
+      phase: 'day-last-words',
+      lastWordsPlayerId: exiledId,
       dayVotes: {},
       dayVoteReasons: {},
       previousDayVotes,
@@ -1390,6 +1399,31 @@ function autoSkipPhases() {
   // tie-speech: handle AI tie speakers
   if (state.phase === 'tie-speech') {
     processTieSpeakers();
+    return;
+  }
+
+  // day-last-words: AI被投出时自动生成遗言，人类被投出但用户存活时短暂展示后自动推进
+  if (state.phase === 'day-last-words') {
+    const exiledId = state.lastWordsPlayerId;
+    if (exiledId) {
+      const exiled = state.players.find(p => p.id === exiledId);
+      if (exiled && exiled.isAI) {
+        // AI 玩家被投出 → 自动生成遗言
+        generateAILastWords(state, exiled);
+        return;
+      }
+      // 人类玩家被投出但用户不是被投出者（用户存活）→ 等待短暂展示后自动推进
+      const userPlayer = state.players.find(p => !p.isAI);
+      if (userPlayer && userPlayer.isAlive && exiledId !== userPlayer.id) {
+        setTimeout(() => {
+          const s = useGameStore.getState().gameState;
+          if (s && s.phase === 'day-last-words') {
+            useGameStore.getState().advancePhase();
+          }
+        }, 3000);
+        return;
+      }
+    }
     return;
   }
 
@@ -1607,6 +1641,109 @@ function getFallbackSpeech(player: Player): string {
   };
   const options = speeches[player.role] || speeches.villager;
   return options[Math.floor(Math.random() * options.length)];
+}
+
+/**
+ * 为被投票放逐的 AI 玩家生成遗言
+ */
+const lastWordsFallbacks: Record<string, string[]> = {
+  werewolf: [
+    '哼，你们会后悔的...真正的狼人还在你们中间！',
+    '虽然我被投出去了，但我要说——好人阵营的判断力真是让人失望。',
+    '好吧，我承认我的发言确实有漏洞，但请你们仔细想想真正可疑的人。',
+  ],
+  seer: [
+    '我是预言家！请相信我最后的话——仔细看我查过的信息。',
+    '虽然我不在了，但我留下的查验记录会帮助你们找到真相。',
+    '好人加油，我相信你们最终会取得胜利。',
+  ],
+  witch: [
+    '我尽力了...希望我的药水没有白费。',
+    '好人阵营还需要继续努力，不要被狼人带偏了节奏。',
+    '我会在天上看着你们，希望你们能找出所有的狼人。',
+  ],
+  guard: [
+    '我已经尽力守护了，接下来就看你们的了。',
+    '虽然我被投出去了，但我相信好人的判断力。',
+    '大家加油，胜利一定属于正义的一方。',
+  ],
+  hunter: [
+    '没想到我会以这种方式离开...但我的子弹不会浪费！',
+    '虽然被投出去了，但我无怨无悔。好人加油！',
+    '这就是我的结局吗？好吧，至少我带走了一个。',
+  ],
+  villager: [
+    '我是无辜的村民！请你们擦亮眼睛，找出真正的狼人。',
+    '虽然我被冤枉了，但我希望好人阵营能从我的死中获得线索。',
+    '再见了各位，希望我的牺牲能帮助好人找到真相。',
+  ],
+};
+
+async function generateAILastWords(state: GameState, exiledPlayer: Player) {
+  const roleName = ROLE_NAMES[exiledPlayer.role];
+  let content: string | null = null;
+
+  // 尝试调用 LLM 生成遗言
+  if (isAIConfigured()) {
+    try {
+      const alivePlayers = state.players.filter(p => p.isAlive).map(p => `${p.name}(${p.isAI ? 'AI' : '人类'})`).join('、');
+      const prompt = `你是一名狼人杀游戏中的玩家，你在白天被投票放逐了。
+
+【你的信息】
+- 名字：${exiledPlayer.name}
+- 身份：${roleName}
+- 当前回合：第 ${state.round + 1} 天
+
+【当前存活玩家】${alivePlayers}
+
+请用中文发表一段简短有力的遗言（不超过100字）。
+${exiledPlayer.role === 'werewolf' ? '注意：你的身份是狼人，遗言中可以适当混淆视听，但不要太明显暴露狼同伴。' : ''}
+${exiledPlayer.role === 'seer' ? '注意：你的身份是预言家，可以在遗言中暗示查验信息来帮助好人阵营。' : ''}
+${exiledPlayer.role === 'hunter' ? '注意：你已经开过枪了（或者选择了不开枪），遗言中可以表达你的感受。' : ''}
+请只输出遗言内容，不要加任何前缀或说明。`;
+
+      const messages: Array<{ role: string; content: string }> = [
+        { role: 'system', content: '你是一个狼人杀玩家，刚刚被投票放逐。请发表遗言。' },
+        { role: 'user', content: prompt },
+      ];
+      const response = await callLLM(messages);
+      if (response && response.length <= 200) {
+        content = response;
+      }
+    } catch {
+      // LLM 失败，使用后备模板
+    }
+  }
+
+  // 后备遗言模板
+  if (!content) {
+    const options = lastWordsFallbacks[exiledPlayer.role] || lastWordsFallbacks.villager;
+    content = options[Math.floor(Math.random() * options.length)];
+  }
+
+  // 将遗言添加到日志
+  const currentState = useGameStore.getState().gameState;
+  if (!currentState || currentState.phase !== 'day-last-words') return;
+
+  const logs = [...currentState.logs, {
+    id: `log-${currentState.logs.length}`,
+    round: currentState.round,
+    phase: 'day-last-words' as const,
+    message: `💬 ${exiledPlayer.name}（${roleName}）的遗言：「${content}」`,
+    timestamp: Date.now(),
+  }];
+
+  useGameStore.setState({
+    gameState: { ...currentState, logs: dedupeLogs(logs) }
+  });
+
+  // 延迟后自动进入 day-result
+  setTimeout(() => {
+    const s = useGameStore.getState().gameState;
+    if (s && s.phase === 'day-last-words') {
+      useGameStore.getState().advancePhase();
+    }
+  }, 3000);
 }
 
 // ============ Tie-breaker ============

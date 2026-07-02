@@ -41,8 +41,9 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
     }
   };
 
-  // Dead player is handled by SpectatorView in App.tsx
-  if (!userPlayer.isAlive) {
+  // Dead player in non-last-words phase is handled by SpectatorView in App.tsx
+  // But if human player was voted out and needs to say last words, show last words UI
+  if (!userPlayer.isAlive && phase !== 'day-last-words') {
     return null;
   }
 
@@ -386,6 +387,140 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
         </div>
       </div>
     );
+  }
+
+  // ============ 遗言阶段 ============
+  if (phase === 'day-last-words') {
+    const exiledId = gameState.lastWordsPlayerId;
+    const exiled = exiledId ? gameState.players.find(p => p.id === exiledId) : null;
+    const isUserExiled = exiledId === userPlayer.id;
+
+    // AI 玩家被投出 → 显示自动生成中的状态
+    if (exiled && exiled.isAI) {
+      const lastWordsLog = gameState.logs.find(
+        l => l.phase === 'day-last-words' && l.round === gameState.round
+      );
+      return (
+        <div className="min-h-screen moon-bg flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center animate-fade-in">
+            <div className="text-5xl mb-4">💬</div>
+            <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">遗言</h2>
+            <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5 mt-4">
+              <p className="text-primary-300 text-sm mb-2">
+                {exiled.name} 被投票放逐，正在发表遗言...
+              </p>
+              {lastWordsLog ? (
+                <div className="bg-primary-800/40 border border-primary-700/30 rounded-xl p-4 mt-3">
+                  <p className="text-primary-300 text-sm italic leading-relaxed">
+                    {lastWordsLog.message.replace(/^💬 .+?的遗言：「/, '').replace(/」$/, '')}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex justify-center mt-4">
+                  <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 人类玩家被投出但不是用户本人（用户存活旁观）
+    if (exiled && !exiled.isAI && !isUserExiled) {
+      return (
+        <div className="min-h-screen moon-bg flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center animate-fade-in">
+            <div className="text-5xl mb-4">💬</div>
+            <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">遗言</h2>
+            <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5 mt-4">
+              <p className="text-primary-300 text-sm">
+                {exiled.name} 被投票放逐
+              </p>
+              <p className="text-primary-500 text-xs mt-2">
+                等待遗言发表中...
+              </p>
+              <div className="flex justify-center mt-4">
+                <div className="w-6 h-6 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 用户本人被投出 → 可以发表遗言
+    if (isUserExiled) {
+      const submitLastWords = () => {
+        if (!message.trim()) return;
+        const store = useGameStore;
+        const s = store.getState().gameState;
+        if (!s) return;
+
+        const logs = [...s.logs, {
+          id: `log-${s.logs.length}`,
+          round: s.round,
+          phase: 'day-last-words' as const,
+          message: `💬 ${userPlayer.name}的遗言：「${message.trim()}」`,
+          timestamp: Date.now(),
+        }];
+
+        store.setState({
+          gameState: { ...s, logs }
+        });
+        setMessage('');
+
+        setTimeout(() => useGameStore.getState().advancePhase(), 1500);
+      };
+
+      const handleLastWordsKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitLastWords();
+        }
+      };
+
+      return (
+        <div className="min-h-screen moon-bg flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center animate-fade-in">
+            <div className="text-5xl mb-4">💬</div>
+            <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">
+              发表遗言
+            </h2>
+            <p className="text-blood-400 text-sm mb-4">
+              你被投票放逐了，请发表你的遗言
+            </p>
+
+            <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleLastWordsKeyDown}
+                placeholder="输入你的遗言... (Enter 发送)"
+                className="w-full px-4 py-3 bg-primary-800/60 border border-primary-700/50 rounded-xl text-primary-200 text-sm placeholder-primary-600 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/30 transition-all resize-none"
+                rows={4}
+                maxLength={200}
+                autoFocus
+              />
+              <span className="block text-right text-[10px] text-primary-600 mt-1">
+                {message.length}/200
+              </span>
+
+              <button
+                onClick={submitLastWords}
+                disabled={!message.trim()}
+                className="mt-4 w-full px-6 py-3 bg-accent-600 hover:bg-accent-500 disabled:bg-primary-700 disabled:text-primary-500 text-primary-950 font-bold rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2"
+              >
+                <Send className="w-4 h-4" />
+                发表遗言
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
   }
 
   if (phase === 'day-vote') {
