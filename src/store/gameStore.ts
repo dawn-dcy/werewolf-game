@@ -85,7 +85,7 @@ const createEmptyState = (): GameState => ({
   nightActions: [],
   _isGeneratingSummary: false,
   hunterShootPending: null,
-  lastWordsPlayerId: null,
+  lastWordsPlayerId: [],
   mvpPlayerId: null,
   mvpReason: null,
   _mvpSelected: false,
@@ -253,9 +253,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // day-last-words → day-result（遗言发表后进入投票结果展示）
+    // day-last-words → 弹出当前遗言者，若队列还有则继续遗言，否则进入 day-result
     if (state.phase === 'day-last-words') {
-      set({ gameState: { ...state, phase: 'day-result', lastWordsPlayerId: null } });
+      const queue = [...state.lastWordsPlayerId];
+      queue.shift(); // 移除刚发表完遗言的玩家
+      if (queue.length > 0) {
+        set({ gameState: { ...state, lastWordsPlayerId: queue } });
+        setTimeout(() => autoSkipPhases(), 400);
+      } else {
+        set({ gameState: { ...state, phase: 'day-result', lastWordsPlayerId: [] } });
+      }
       return;
     }
 
@@ -517,6 +524,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         players: updatedPlayers,
         logs: dedupeLogs(logs),
         phase: returnPhase,
+        lastWordsPlayerId: isNightDeath ? state.lastWordsPlayerId : [...state.lastWordsPlayerId, targetId],
         dayVotes: {},
         dayVoteReasons: {},
         previousDayVotes,
@@ -708,15 +716,16 @@ function transitionToGameOver(gameOverResult: 'werewolf-win' | 'villager-win') {
 
 /**
  * 异步处理 AI 猎人开枪
- * @returns 猎人开枪日志消息（如果成功）
+ * @returns { messages: 日志消息, shotIds: 被开枪杀死的玩家ID列表 }
  */
 async function resolveHunterShoots(
   state: GameState,
   hunterDeadIds: string[],
   updatedPlayers: Player[],
   isNightDeath: boolean = false,
-): Promise<string[]> {
+): Promise<{ messages: string[]; shotIds: string[] }> {
   const messages: string[] = [];
+  const shotIds: string[] = [];
   for (const deadId of hunterDeadIds) {
     const deadPlayer = updatedPlayers.find(p => p.id === deadId);
     if (!deadPlayer || deadPlayer.role !== 'hunter') continue;
@@ -731,6 +740,7 @@ async function resolveHunterShoots(
     if (!shot || !shot.isAlive) {
       const fallback = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
       fallback.isAlive = false;
+      shotIds.push(fallback.id);
       if (isNightDeath) {
         messages.push(`昨晚，${fallback.name} 死了。`);
       } else {
@@ -738,6 +748,7 @@ async function resolveHunterShoots(
       }
     } else {
       shot.isAlive = false;
+      shotIds.push(shot.id);
       if (isNightDeath) {
         messages.push(`昨晚，${shot.name} 死了。`);
       } else {
@@ -745,7 +756,7 @@ async function resolveHunterShoots(
       }
     }
   }
-  return messages;
+  return { messages, shotIds };
 }
 
 async function processNightResult() {
@@ -883,7 +894,7 @@ async function processNightResult() {
   
   // AI 猎人开枪（夜晚死亡，不暴露猎人身份）
   if (hunterDeadIds.length > 0) {
-    const hunterMessages = await resolveHunterShoots(state, hunterDeadIds, updatedPlayers, true);
+    const { messages: hunterMessages } = await resolveHunterShoots(state, hunterDeadIds, updatedPlayers, true);
     for (const msg of hunterMessages) {
       logs.push({
         id: `log-${logs.length}`,
@@ -1158,6 +1169,9 @@ async function processDayVote() {
     });
   }
 
+  // AI猎人白天开枪的目标（需加入遗言队列）
+  let hunterShotIds: string[] = [];
+
   if (exiledId) {
     const exiled = updatedPlayers.find(p => p.id === exiledId);
     if (exiled && exiled.isAlive) {
@@ -1181,7 +1195,7 @@ async function processDayVote() {
               players: updatedPlayers,
               logs,
               phase: 'hunter-shoot',
-              lastWordsPlayerId: exiledId,
+              lastWordsPlayerId: [exiledId],
               hunterShootPending: {
                 hunterId: exiledId,
                 returnPhase: 'day-last-words',
@@ -1196,15 +1210,17 @@ async function processDayVote() {
           return;
         }
         
-        // AI 猎人开枪
-        const hunterMsgs = await resolveHunterShoots(state, [exiledId], updatedPlayers);
-        for (const msg of hunterMsgs) {
+        // AI 猎人开枪（白天被投出，暴露猎人身份，被带走者需发表遗言）
+        const { messages: aiHunterMsgs, shotIds: aiHunterShotIds } = await resolveHunterShoots(state, [exiledId], updatedPlayers);
+        for (const msg of aiHunterMsgs) {
           logs.push({
             id: `log-${logs.length}`, round: state.round, phase: 'day-result',
             message: msg,
             timestamp: Date.now(),
           });
         }
+        // AI猎人开枪目标加入遗言队列
+        aiHunterShotIds.forEach(id => hunterShotIds.push(id));
       } else {
         logs.push({
           id: `log-${logs.length}`, round: state.round, phase: 'day-result',
@@ -1231,8 +1247,8 @@ async function processDayVote() {
       ...state,
       players: updatedPlayers,
       logs: dedupeLogs(logs),
-      phase: 'day-last-words',
-      lastWordsPlayerId: exiledId,
+      phase: exiledId ? 'day-last-words' : 'day-result',
+      lastWordsPlayerId: exiledId ? [exiledId, ...hunterShotIds] : [],
       dayVotes: {},
       dayVoteReasons: {},
       previousDayVotes,
@@ -1402,17 +1418,18 @@ function autoSkipPhases() {
     return;
   }
 
-  // day-last-words: AI被投出时自动生成遗言，人类被投出但用户存活时短暂展示后自动推进
+  // day-last-words: AI被投出/被猎人带走时自动生成遗言，人类被投出/被带走但用户存活时短暂展示后自动推进
   if (state.phase === 'day-last-words') {
-    const exiledId = state.lastWordsPlayerId;
-    if (exiledId) {
+    const queue = state.lastWordsPlayerId;
+    if (queue.length > 0) {
+      const exiledId = queue[0];
       const exiled = state.players.find(p => p.id === exiledId);
       if (exiled && exiled.isAI) {
-        // AI 玩家被投出 → 自动生成遗言
+        // AI 玩家 → 自动生成遗言
         generateAILastWords(state, exiled);
         return;
       }
-      // 人类玩家被投出但用户不是被投出者（用户存活）→ 等待短暂展示后自动推进
+      // 人类玩家但不是当前用户（用户存活）→ 等待短暂展示后自动推进
       const userPlayer = state.players.find(p => !p.isAI);
       if (userPlayer && userPlayer.isAlive && exiledId !== userPlayer.id) {
         setTimeout(() => {
@@ -1424,6 +1441,8 @@ function autoSkipPhases() {
         return;
       }
     }
+    return;
+  }
     return;
   }
 

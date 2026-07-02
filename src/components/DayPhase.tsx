@@ -391,9 +391,13 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
 
   // ============ 遗言阶段 ============
   if (phase === 'day-last-words') {
-    const exiledId = gameState.lastWordsPlayerId;
+    const exiledId = gameState.lastWordsPlayerId[0] || null;
     const exiled = exiledId ? gameState.players.find(p => p.id === exiledId) : null;
     const isUserExiled = exiledId === userPlayer.id;
+    // 当前遗言者是被猎人开枪带走的（而非直接被投票放逐的）
+    const isHunterShot = exiled && gameState.logs.some(l => 
+      l.round === gameState.round && l.message.includes(exiled.name) && l.message.includes('开枪带走')
+    );
 
     // AI 玩家被投出 → 显示自动生成中的状态
     if (exiled && exiled.isAI) {
@@ -407,7 +411,7 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
             <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">遗言</h2>
             <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5 mt-4">
               <p className="text-primary-300 text-sm mb-2">
-                {exiled.name} 被投票放逐，正在发表遗言...
+                {exiled.name}{isHunterShot ? ' 被猎人开枪带走' : ' 被投票放逐'}，正在发表遗言...
               </p>
               {lastWordsLog ? (
                 <div className="bg-primary-800/40 border border-primary-700/30 rounded-xl p-4 mt-3">
@@ -435,7 +439,7 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
             <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">遗言</h2>
             <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5 mt-4">
               <p className="text-primary-300 text-sm">
-                {exiled.name} 被投票放逐
+                {exiled.name}{isHunterShot ? ' 被猎人开枪带走' : ' 被投票放逐'}
               </p>
               <p className="text-primary-500 text-xs mt-2">
                 等待遗言发表中...
@@ -488,7 +492,7 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
               发表遗言
             </h2>
             <p className="text-blood-400 text-sm mb-4">
-              你被投票放逐了，请发表你的遗言
+              {isHunterShot ? '你被猎人开枪带走了，请发表你的遗言' : '你被投票放逐了，请发表你的遗言'}
             </p>
 
             <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5">
