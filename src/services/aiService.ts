@@ -435,13 +435,19 @@ function getGameLogsSummary(state: GameState, maxLogs: number = 8): string {
   return recent.map(l => `- ${cleanLogMessage(l.message, state)}`).join('\n');
 }
 
-/** 清理日志消息中的人类玩家名（去掉 (你) 后缀） */
+/** 清理日志消息：去掉人类玩家名(你)后缀，剥离遗言中的角色身份信息 */
 function cleanLogMessage(message: string, state: GameState): string {
   let cleaned = message;
   // 找到人类玩家并替换
   const humanPlayer = state.players.find(p => !p.isAI);
   if (humanPlayer) {
     cleaned = cleaned.replace(new RegExp(humanPlayer.name.replace(/[()]/g, '\\$&'), 'g'), getAIName(humanPlayer));
+  }
+  // 剥离中文括号包裹的角色名（如"（狼人）"），防止遗言等场景泄露身份
+  // 注意：不剥离"身份是猎人"模式，因为猎人在白天被放逐时身份公开属于正确游戏行为
+  const roleNames = Object.values(ROLE_NAMES);
+  for (const roleName of roleNames) {
+    cleaned = cleaned.replace(new RegExp(`（${roleName}）`, 'g'), '');
   }
   return cleaned;
 }
@@ -1043,7 +1049,7 @@ ${getRoundHistory(state, player.id)}
 - 投票给好人：这是最直接的策略，帮助减少好人数
 - 投票给狼队友：可以作为伪装，避免被怀疑
 - 投票给被怀疑的玩家：跟随舆论趋势，让自己的行为看起来像好人
-- ⚠️ 不要投票给明显是狼队友的玩家如果这样做会暴露你的身份
+- ⚠️ 不要维护明显是狼队友的玩家，如果这样做会暴露你的身份
 - 基于狼人立场，优先票走预言家、女巫等关键神职
 
 ### 📋 你的历史操作记录：

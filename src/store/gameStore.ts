@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 import { GameState, GamePhase, Role, Player, RoundSummary, NightActionRecord, HunterShootPending } from '../types/game';
 import { shuffleRoles, generateAINames, generateAvatarSeed, checkGameOver, getRoleDistribution } from '../utils/gameLogic';
 import {
@@ -99,6 +99,10 @@ const ROLE_NAMES: Record<Role, string> = {
   witch: '女巫', hunter: '猎人', guard: '守卫',
 };
 
+// 全局单调递增日志 ID 计数器，避免 dedupeLogs 删除条目后 logs.length 变化导致 ID 碰撞
+let _logIdCounter = 0;
+const nextLogId = () => `log-${++_logIdCounter}`;
+
 function hasRoleAlive(state: GameState, role: Role): boolean {
   return state.players.some(p => p.role === role && p.isAlive);
 }
@@ -187,7 +191,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         players: updatedPlayers,
         logs: [
           ...state.logs,
-          { id: `log-${state.logs.length}`, round: 0, phase: 'role-reveal', message: '玩家重新分配了身份。', timestamp: Date.now() }
+          { id: nextLogId(), round: 0, phase: 'role-reveal', message: '玩家重新分配了身份。', timestamp: Date.now() }
         ],
       }
     });
@@ -435,7 +439,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
 
       const newLogs = dedupeLogs([...currentState.logs, {
-        id: `log-${currentState.logs.length}`,
+        id: nextLogId(),
         round: currentState.round,
         phase: 'night-werewolf' as const,
         message: `狼人投票：${voteDetails.join('，')}。最终目标：${finalTarget?.name || '?'}`,
@@ -461,7 +465,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const target = state.players.find(p => p.id === playerId);
     const isWerewolf = target?.role === 'werewolf';
     const newLogs = dedupeLogs([...state.logs, {
-      id: `log-${state.logs.length}`,
+      id: nextLogId(),
       round: state.round,
       phase: 'night-seer' as const,
       message: `🔮 预言家查验了 ${target?.name}，结果是：${isWerewolf ? '狼人' : '好人'}`,
@@ -515,7 +519,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     target.isAlive = false;
     const isNightDeath = returnPhase === 'night-result';
     logs.push({
-      id: `log-${logs.length}`,
+      id: nextLogId(),
       round: state.round,
       phase: returnPhase,
       message: isNightDeath
@@ -805,7 +809,7 @@ async function processNightResult() {
       const witch = updatedPlayers.find(p => p.role === 'witch');
       if (witch) witch.hasAntidote = false;
       logs.push({
-        id: `log-${logs.length}`,
+        id: nextLogId(),
         round: state.round,
         phase: 'night-result',
         message: `昨晚，${target?.name || '一名玩家'} 死了。`,
@@ -814,7 +818,7 @@ async function processNightResult() {
     } else if (guarded) {
       guardSavedSomeone = true;
       logs.push({
-        id: `log-${logs.length}`,
+        id: nextLogId(),
         round: state.round,
         phase: 'night-result',
         message: '昨晚是平安夜，无人死亡。',
@@ -825,7 +829,7 @@ async function processNightResult() {
       const witch = updatedPlayers.find(p => p.role === 'witch');
       if (witch) witch.hasAntidote = false;
       logs.push({
-        id: `log-${logs.length}`,
+        id: nextLogId(),
         round: state.round,
         phase: 'night-result',
         message: '昨晚是平安夜，无人死亡。',
@@ -838,7 +842,7 @@ async function processNightResult() {
         killedId = target.id;
         newlyDeadIds.push(target.id);
         logs.push({
-          id: `log-${logs.length}`,
+          id: nextLogId(),
           round: state.round,
           phase: 'night-result',
           message: `昨晚，${target.name} 死了。`,
@@ -856,7 +860,7 @@ async function processNightResult() {
       poisoned = true;
       newlyDeadIds.push(target.id);
       logs.push({
-        id: `log-${logs.length}`,
+        id: nextLogId(),
         round: state.round,
         phase: 'night-result',
         message: `昨晚，${target.name} 死了。`,
@@ -908,7 +912,7 @@ async function processNightResult() {
     const { messages: hunterMessages } = await resolveHunterShoots(state, hunterDeadIds, updatedPlayers, true);
     for (const msg of hunterMessages) {
       logs.push({
-        id: `log-${logs.length}`,
+        id: nextLogId(),
         round: state.round,
         phase: 'night-result',
         message: msg,
@@ -1124,7 +1128,7 @@ async function processDayVote() {
     // 记录平票日志
     const tiedNames = tiedIds.map(id => state.players.find(p => p.id === id)?.name || '未知').join('、');
     const logs = [...state.logs, {
-      id: `log-${state.logs.length}`,
+      id: nextLogId(),
       round: state.round,
       phase: 'day-result',
       message: `⚖️ 投票平票！${tiedNames} 将进行补充发言，之后由其他玩家重新投票。`,
@@ -1172,7 +1176,7 @@ async function processDayVote() {
 
   if (voteDetails.length > 0) {
     logs.push({
-      id: `log-${logs.length}`,
+      id: nextLogId(),
       round: state.round,
       phase: 'day-result',
       message: `📊 投票详情：${voteDetails.join('，')}`,
@@ -1191,7 +1195,7 @@ async function processDayVote() {
 
       if (exiled.role === 'hunter') {
         logs.push({
-          id: `log-${logs.length}`, round: state.round, phase: 'day-result',
+          id: nextLogId(), round: state.round, phase: 'day-result',
           message: isRandomExile
             ? `🎲 补投后仍平票，随机放逐 ${exiled.name}，身份是 ${ROLE_NAMES[exiled.role]}。`
             : `${exiled.name} 被投票放逐（${maxVotes}票），身份是 ${ROLE_NAMES[exiled.role]}。`,
@@ -1225,7 +1229,7 @@ async function processDayVote() {
         const { messages: aiHunterMsgs, shotIds: aiHunterShotIds } = await resolveHunterShoots(state, [exiledId], updatedPlayers);
         for (const msg of aiHunterMsgs) {
           logs.push({
-            id: `log-${logs.length}`, round: state.round, phase: 'day-result',
+            id: nextLogId(), round: state.round, phase: 'day-result',
             message: msg,
             timestamp: Date.now(),
           });
@@ -1234,7 +1238,7 @@ async function processDayVote() {
         aiHunterShotIds.forEach(id => hunterShotIds.push(id));
       } else {
         logs.push({
-          id: `log-${logs.length}`, round: state.round, phase: 'day-result',
+          id: nextLogId(), round: state.round, phase: 'day-result',
           message: isRandomExile
             ? `🎲 补投后仍平票，随机放逐 ${exiled.name}。`
             : `${exiled.name} 被投票放逐（${maxVotes}票）。`,
@@ -1244,7 +1248,7 @@ async function processDayVote() {
     }
   } else {
     logs.push({
-      id: `log-${logs.length}`, round: state.round, phase: 'day-result',
+      id: nextLogId(), round: state.round, phase: 'day-result',
       message: isTieReVote ? '补投后仍平票，无人被放逐。' : '投票平票或无人被投，无人被放逐。',
       timestamp: Date.now(),
     });
@@ -1320,7 +1324,7 @@ async function processAINightActions() {
           const target = currentState.players.find(p => p.id === targetId);
           const isWerewolf = target?.role === 'werewolf';
           const newLogs = dedupeLogs([...currentState.logs, {
-            id: `log-${currentState.logs.length}`,
+            id: nextLogId(),
             round: currentState.round,
             phase: 'night-seer' as const,
             message: `🔮 预言家查验了 ${target?.name || '未知'}，结果是：${isWerewolf ? '狼人' : '好人'}`,
@@ -1857,10 +1861,10 @@ ${exiledPlayer.role === 'seer' ? '- 你是预言家，如果查验到了狼人�
   }
 
   const logs = [...currentState.logs, {
-    id: `log-${currentState.logs.length}`,
+    id: nextLogId(),
     round: currentState.round,
     phase: 'day-last-words' as const,
-    message: `💬 ${exiledPlayer.name}（${roleName}）的遗言：「${content}」`,
+    message: `💬 ${exiledPlayer.name}的遗言：「${content}」`,
     timestamp: Date.now(),
   }];
 
@@ -1926,7 +1930,7 @@ function processTieSpeakers() {
         round: s.round, timestamp: Date.now(),
       };
       const logs = [...s.logs, {
-        id: `log-${s.logs.length}`, round: s.round, phase: 'tie-speech',
+        id: nextLogId(), round: s.round, phase: 'tie-speech',
         message: `⚖️ ${speaker.name}（平票玩家）补充发言`,
         timestamp: Date.now(),
       }];
@@ -1953,7 +1957,7 @@ function processTieSpeakers() {
         round: s.round, timestamp: Date.now(),
       };
       const logs = [...s.logs, {
-        id: `log-${s.logs.length}`, round: s.round, phase: 'tie-speech',
+        id: nextLogId(), round: s.round, phase: 'tie-speech',
         message: `⚖️ ${speaker.name}（平票玩家）补充发言`,
         timestamp: Date.now(),
       }];

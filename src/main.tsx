@@ -5,18 +5,27 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 
 // 阻止外部脚本/扩展的无关错误污染控制台
-const _prevOnerror = window.onerror;
-window.onerror = (msg, source, lineno, colno, error) => {
+const shouldSuppressError = (msg: unknown, error?: Error | null): boolean => {
   const msgStr = String(msg || '');
-  if (
+  return (
     msgStr.includes('getBoundingClientRect') ||
     msgStr === 'Script error.' ||
-    (error && error.message?.includes('getBoundingClientRect'))
-  ) {
-    return true; // 返回 true 阻止浏览器默认的错误日志
+    msgStr.includes('[unknown-error]') ||
+    (!!error && String(error.message || '').includes('getBoundingClientRect'))
+  );
+};
+
+// useCapture: true 在捕获阶段就拦截，优先于 webview 诊断
+window.addEventListener('error', (event) => {
+  if (shouldSuppressError(event.message, event.error)) {
+    event.stopImmediatePropagation();
+    event.preventDefault();
   }
-  if (_prevOnerror) {
-    return _prevOnerror(msg, source, lineno, colno, error);
+}, true);
+
+window.onerror = (msg, source, lineno, colno, error) => {
+  if (shouldSuppressError(msg, error)) {
+    return true;
   }
   return false;
 };
