@@ -68,6 +68,24 @@ const GodView: React.FC<GodViewProps> = ({ gameState }) => {
     });
   }
 
+  // Get last words logs grouped by round
+  const lastWordsByRound = new Map<number, string[]>();
+  for (const log of gameState.logs) {
+    if (log.phase === 'day-last-words') {
+      if (!lastWordsByRound.has(log.round)) {
+        lastWordsByRound.set(log.round, []);
+      }
+      // Extract clean text from log message format: "💬 XXX的遗言：「...」"
+      const cleanText = log.message.replace(/^💬 .+?的遗言：「/, '').replace(/」$/, '');
+      lastWordsByRound.get(log.round)!.push(cleanText);
+    }
+  }
+
+  // Collect all rounds that have either speeches or last words
+  const allSpeechRounds = new Set<number>();
+  speechByRound.forEach((_, r) => allSpeechRounds.add(r));
+  lastWordsByRound.forEach((_, r) => allSpeechRounds.add(r));
+
   // Get vote records by round
   const voteRecordsByRound = new Map<number, Array<{ voter: string; target: string }>>();
   // From logs
@@ -238,9 +256,12 @@ const GodView: React.FC<GodViewProps> = ({ gameState }) => {
               {showRoleColors ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
               {showRoleColors ? '隐藏身份颜色' : '显示身份颜色'}
             </button>
-            {Array.from(speechByRound.entries())
-              .sort(([a], [b]) => a - b)
-              .map(([round, speeches]) => (
+            {Array.from(allSpeechRounds)
+              .sort((a, b) => a - b)
+              .map((round) => {
+                const speeches = speechByRound.get(round) || [];
+                const lastWords = lastWordsByRound.get(round) || [];
+                return (
               <div key={round} className="bg-primary-900/60 border border-primary-800/40 rounded-lg p-3">
                 <h3 className="text-xs font-bold text-primary-300 mb-2 flex items-center gap-1">
                   <MessageSquare className="w-3 h-3" /> 第 {round + 1} 天
@@ -260,9 +281,20 @@ const GodView: React.FC<GodViewProps> = ({ gameState }) => {
                       </div>
                     );
                   })}
+                  {/* 遗言信息 */}
+                  {lastWords.map((lw, i) => (
+                    <div
+                      key={`lw-${i}`}
+                      className="text-xs bg-primary-800/30 rounded px-2 py-1.5 border border-primary-700/40"
+                    >
+                      <span className="text-accent-400 font-medium">💬 遗言：</span>
+                      <span className="text-primary-300 italic whitespace-pre-wrap">{lw}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+                );
+              })}
             {speechByRound.size === 0 && (
               <p className="text-xs text-primary-500 text-center py-4">暂无发言记录</p>
             )}

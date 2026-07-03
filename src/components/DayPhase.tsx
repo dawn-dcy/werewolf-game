@@ -503,11 +503,11 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
                 placeholder="输入你的遗言... (Enter 发送)"
                 className="w-full px-4 py-3 bg-primary-800/60 border border-primary-700/50 rounded-xl text-primary-200 text-sm placeholder-primary-600 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/30 transition-all resize-none"
                 rows={4}
-                maxLength={200}
+                maxLength={500}
                 autoFocus
               />
               <span className="block text-right text-[10px] text-primary-600 mt-1">
-                {message.length}/200
+                {message.length}/500
               </span>
 
               <button
@@ -658,11 +658,36 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
       };
     });
 
+    // 获取当前轮的遗言
+    const lastWordsLogs = gameState.logs.filter(
+      l => l.phase === 'day-last-words' && l.round === gameState.round
+    );
+
     return (
       <div className="min-h-screen moon-bg flex items-center justify-center p-4">
         <div className="max-w-md w-full text-center animate-fade-in">
           <Gavel className="w-16 h-16 text-accent-400 mx-auto mb-4" />
           <h2 className="text-2xl font-black text-primary-100 glow-text mb-2">投票结果</h2>
+
+          {/* Show last words (遗言) - displayed together with vote results */}
+          {lastWordsLogs.length > 0 && (
+            <div className="bg-primary-900/60 border border-primary-800/50 rounded-2xl p-5 mt-4">
+              <h3 className="text-sm font-bold text-primary-300 mb-3">💬 遗言：</h3>
+              <div className="space-y-2">
+                {lastWordsLogs.map(log => {
+                  // Extract the actual words from the log message format: "💬 XXX的遗言：「...」"
+                  const content = log.message.replace(/^💬 .+?的遗言：「/, '').replace(/」$/, '');
+                  const playerName = log.message.match(/^💬 (.+?)的遗言/)?.[1] || '';
+                  return (
+                    <div key={log.id} className="text-sm bg-primary-800/30 border border-primary-700/30 rounded-lg px-3 py-2.5">
+                      <span className="text-accent-400 font-medium text-xs">{playerName}：</span>
+                      <p className="text-primary-300 text-sm mt-1 italic leading-relaxed">{content}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Show vote details: who voted for whom */}
           {voteDetails.length > 0 && (
