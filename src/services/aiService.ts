@@ -312,14 +312,14 @@ export function getRoundHistory(state: GameState, selfPlayerId?: string): string
     }
   }
 
-  // 按轮次提取夜晚结果日志
+  // 按轮次提取夜晚结果日志（自动过滤"平安夜"与死亡冲突的情况）
   const nightResultsByRound = new Map<number, string[]>();
   for (const log of state.logs) {
     if (log.phase === 'night-result') {
-      if (!nightResultsByRound.has(log.round)) {
-        nightResultsByRound.set(log.round, []);
+      const round = log.round;
+      if (!nightResultsByRound.has(round)) {
+        nightResultsByRound.set(round, getNightResultsForRound(state, round));
       }
-      nightResultsByRound.get(log.round)!.push(cleanLogMessage(log.message, state));
     }
   }
 
@@ -452,6 +452,28 @@ function cleanLogMessage(message: string, state: GameState): string {
   return cleaned;
 }
 
+/**
+ * 从日志中提取某轮的夜晚结果，自动过滤"平安夜"的虚假信息
+ * 当同一轮既有狼刀被守/救（产生"平安夜"日志）又有女巫毒人（产生死亡日志）时，
+ * 只保留死亡消息，排除"平安夜"消息，避免出现"昨晚平安夜，X死了"的矛盾表述
+ */
+function getNightResultsForRound(state: GameState, round: number): string[] {
+  // 检查该轮是否有人死亡（狼刀或毒药或其他原因）
+  const hasDeath = state.logs.some(
+    l => l.round === round && l.phase === 'night-result' && /死了/.test(l.message)
+  );
+
+  const results: string[] = [];
+  for (const log of state.logs) {
+    if (log.round !== round || log.phase !== 'night-result') continue;
+    const cleaned = cleanLogMessage(log.message, state);
+    // 如果有人死亡，跳过"平安夜"相关消息
+    if (hasDeath && (cleaned.includes('平安夜') || cleaned.includes('无人死亡'))) continue;
+    results.push(cleaned);
+  }
+  return results;
+}
+
 // ============ 玩家行动历史（让 AI 知道自己的历史操作） ============
 
 /**
@@ -509,17 +531,25 @@ export function buildPlayerActionHistory(state: GameState, player: Player): stri
 
     // 补充 werewolf kill result（刀人是否成功）
     if (player.role === 'werewolf') {
+      // 先检查每轮是否有人死亡（排除平安夜假象）
+      const hasDeathByRound = new Map<number, boolean>();
+      for (const log of state.logs) {
+        if (log.phase === 'night-result' && /死了/.test(log.message)) {
+          hasDeathByRound.set(log.round, true);
+        }
+      }
       for (const log of state.logs) {
         if (log.phase !== 'night-result') continue;
         const existingRound = history.find(h => h.includes(`第 ${log.round + 1} 轮结果`));
         if (existingRound) continue;
-        if (log.message.includes('平安夜') || log.message.includes('无人死亡')) {
-          history.push(`第 ${log.round + 1} 轮结果：击杀失败（平安夜）`);
-        } else {
+        if (hasDeathByRound.get(log.round)) {
+          // 该轮有人死亡（可能是毒药等），只记录击杀结果
           const match = log.message.match(/昨晚，(.+?) 死了/);
           if (match) {
             history.push(`第 ${log.round + 1} 轮结果：击杀成功（${match[1]} 死亡）`);
           }
+        } else if (log.message.includes('平安夜') || log.message.includes('无人死亡')) {
+          history.push(`第 ${log.round + 1} 轮结果：击杀失败（平安夜）`);
         }
       }
     }
@@ -592,15 +622,12 @@ export async function generateRoundSummary(state: GameState, round: number): Pro
   if (roundMessages.length === 0) return '（本轮无讨论发言）';
 
   // 提取该轮的夜晚结果和投票结果（遗言不在此处提取，交由 getRoundHistory 单独展示）
-  const nightResults: string[] = [];
+  const nightResults = getNightResultsForRound(state, round);
   const voteResults: string[] = [];
   for (const log of state.logs) {
     if (log.round !== round) continue;
-    const cleaned = cleanLogMessage(log.message, state);
-    if (log.phase === 'night-result') {
-      nightResults.push(cleaned);
-    } else if (log.phase === 'day-result') {
-      voteResults.push(cleaned);
+    if (log.phase === 'day-result') {
+      voteResults.push(cleanLogMessage(log.message, state));
     }
   }
 
@@ -653,14 +680,12 @@ export function generateFallbackSummary(state: GameState, round: number): string
   const roundMessages = state.discussionMessages.filter(m => m.round === round);
   if (roundMessages.length === 0) return '（本轮无讨论发言）';
 
-  // 提取关键信息
-  const nightResults: string[] = [];
+  // 提取关键信息（夜晚结果自动过滤"平安夜"与死亡冲突）
+  const nightResults = getNightResultsForRound(state, round);
   const voteResults: string[] = [];
   for (const log of state.logs) {
     if (log.round !== round) continue;
-    if (log.phase === 'night-result') {
-      nightResults.push(cleanLogMessage(log.message, state));
-    } else if (log.phase === 'day-result') {
+    if (log.phase === 'day-result') {
       voteResults.push(cleanLogMessage(log.message, state));
     }
   }

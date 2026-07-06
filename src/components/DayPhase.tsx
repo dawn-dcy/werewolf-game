@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Sun, Vote, MessageSquare, Gavel, Send, User, Bot } from 'lucide-react';
 import { GameState, Player, DiscussionMessage } from '../types/game';
 import PlayerList from './PlayerList';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore, nextLogId, dedupeLogs } from '../store/gameStore';
 
 interface DayPhaseProps {
   gameState: GameState;
@@ -461,13 +461,13 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
         const s = store.getState().gameState;
         if (!s) return;
 
-        const logs = [...s.logs, {
-          id: `log-${s.logs.length}`,
+        const logs = dedupeLogs([...s.logs, {
+          id: nextLogId(),
           round: s.round,
           phase: 'day-last-words' as const,
           message: `💬 ${userPlayer.name}的遗言：「${message.trim()}」`,
           timestamp: Date.now(),
-        }];
+        }]);
 
         store.setState({
           gameState: { ...s, logs }
