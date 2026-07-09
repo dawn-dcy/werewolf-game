@@ -117,6 +117,9 @@ const Lobby: React.FC<LobbyProps> = ({ username, selectedCount, onSelectCount, o
               <p><strong className="text-green-400">🛡️ 守卫：</strong>每晚可守护一名玩家，不能连续守同一人。</p>
             </div>
           </div>
+          <p className="mt-4 text-xs text-primary-500 border-t border-primary-800/50 pt-3">
+            ⚠️ 遗言声明：被投票放逐的玩家发表的遗言内容及其声称的身份均不一定真实，可能包含误导信息，请根据局势自行判断其可信度。
+          </p>
         </div>
       </div>
     </div>

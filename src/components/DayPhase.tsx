@@ -53,8 +53,10 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
     const messages = allMessages.filter(m => m.round === gameState.round);
     const order = gameState.discussionOrder || [];
     const currentIdx = gameState.currentSpeakerIndex ?? -1;
-    const allSpoken = currentIdx >= order.length;
-    const isMyTurn = !allSpoken && order[currentIdx] === userPlayer.id;
+    // 人类玩家必须已经发过言，才能算"全部发言完毕"
+    const humanHasSpoken = order.findIndex(pid => pid === userPlayer.id) < currentIdx;
+    const allSpoken = currentIdx >= order.length && humanHasSpoken;
+    const isMyTurn = !allSpoken && currentIdx >= 0 && currentIdx < order.length && order[currentIdx] === userPlayer.id;
     const currentSpeaker = !allSpoken ? gameState.players.find(p => p.id === order[currentIdx]) : null;
     const spokenPlayers = order.slice(0, currentIdx);
     const remainingPlayers = order.slice(currentIdx);
@@ -395,8 +397,9 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
     const exiled = exiledId ? gameState.players.find(p => p.id === exiledId) : null;
     const isUserExiled = exiledId === userPlayer.id;
     // 当前遗言者是被猎人开枪带走的（而非直接被投票放逐的）
+    // 注意：必须用"带走了 X"精确匹配被猎人枪杀的目标，避免把猎人也误判为被枪杀
     const isHunterShot = exiled && gameState.logs.some(l => 
-      l.round === gameState.round && l.message.includes(exiled.name) && l.message.includes('开枪带走')
+      l.round === gameState.round && l.message.includes(`带走了 ${exiled.name}`)
     );
 
     // AI 玩家被投出 → 显示自动生成中的状态
