@@ -229,10 +229,7 @@ const NightPhase: React.FC<NightPhaseProps> = ({
                 ☠️ {witchPoisonTarget ? '取消使用毒药' : '使用毒药'}
               </button>
               <button
-                onClick={() => {
-                  onWitchPoison(null);
-                  onAdvance();
-                }}
+                onClick={() => onWitchPoison(null)}
                 className="flex-1 py-2.5 bg-primary-700/50 hover:bg-primary-600/50 text-primary-400 rounded-xl cursor-pointer transition-all"
               >
                 不使用毒药，进入白天
@@ -253,10 +250,7 @@ const NightPhase: React.FC<NightPhaseProps> = ({
                   将对 <strong>{gameState.players.find(p => p.id === witchPoisonTarget)?.name}</strong> 使用毒药
                 </p>
                 <button
-                  onClick={() => {
-                    onWitchPoison(witchPoisonTarget);
-                    onAdvance();
-                  }}
+                  onClick={() => onWitchPoison(witchPoisonTarget)}
                   className="px-6 py-2 bg-blood-600 hover:bg-blood-500 text-white font-bold rounded-xl cursor-pointer transition-all"
                 >
                   确认毒杀

@@ -118,6 +118,9 @@ const Lobby: React.FC<LobbyProps> = ({ username, selectedCount, onSelectCount, o
             </div>
           </div>
           <p className="mt-4 text-xs text-primary-500 border-t border-primary-800/50 pt-3">
+            ⚠️ 唯一身份规则：所有神职（预言家、女巫、猎人、守卫）都只有1个。如果有人跳的身份和你相同，那他100%在说谎，大概率是狼人悍跳。
+          </p>
+          <p className="mt-2 text-xs text-primary-500">
             ⚠️ 遗言声明：被投票放逐的玩家发表的遗言内容及其声称的身份均不一定真实，可能包含误导信息，请根据局势自行判断其可信度。
           </p>
         </div>
