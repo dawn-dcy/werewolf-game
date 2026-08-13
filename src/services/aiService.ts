@@ -531,7 +531,7 @@ export function buildPlayerActionHistory(state: GameState, player: Player): stri
       if (player.role === 'witch') {
         if (action.action === '使用解药救人') {
           history.push(`第 ${action.round + 1} 轮：使用解药救活了「${action.targetName || '未知'}」`);
-        } else if (action.action === '使用毒药') {
+        } else if (action.action === '使用毒药毒杀') {
           history.push(`第 ${action.round + 1} 轮：使用毒药毒杀了「${action.targetName || '未知'}」`);
         }
       }
@@ -1079,7 +1079,7 @@ ${buildPlayerActionHistory(state, player)}
   }
 
   context += `\n\n---
-现在请你发表你的看法（5~10句，逻辑清晰明了）：
+现在请你发表你的看法（3~6句，逻辑清晰明了）：
 - 💡 分析时请记住：被狼人刀死的玩家大概率是好人（狼人杀好人），被投票放逐的玩家是大家怀疑的对象（可能是好人被冤枉，也可能是狼人被找出）。
 - ⚠️ 请仔细阅读上面「📜 历史轮次回顾」中其他玩家本轮和往轮的发言，你的发言需要基于这些讨论记录来进行分析和回应！
 - 你可以回应或反驳其他玩家对你的怀疑，也可以指出其他玩家发言中的矛盾之处。
@@ -1363,7 +1363,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   context += `\n\n---
-⚖️ 你现在处于平票阶段，需要为自己补充辩护（5~10句，逻辑清晰明了），说服其他玩家不要投你。
+⚖️ 你现在处于平票阶段，需要为自己补充辩护（3~6句，逻辑清晰明了），说服其他玩家不要投你。
 
 注意：
 - 为自己辩护，说清楚你为什么不是狼人，给出具体理由
