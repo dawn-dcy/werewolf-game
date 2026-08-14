@@ -873,9 +873,12 @@ async function processNightResult() {
   }
 
   // 猎人死亡时开枪带走一名存活玩家（AI 猎人→大模型决策，人类猎人→进入选择 UI）
+  // 规则：猎人只有被狼人刀死（或白天被投票放逐）才能开枪；被女巫毒死的猎人不能开枪
   const hunterDeadIds: string[] = [];
   let humanHunterId: string | null = null;
   for (const deadId of newlyDeadIds) {
+    // 被女巫毒死的猎人不能开枪
+    if (deadId === state.witchKillTargetId) continue;
     const deadPlayer = updatedPlayers.find(p => p.id === deadId);
     if (!deadPlayer || deadPlayer.role !== 'hunter') continue;
     if (!deadPlayer.isAI) {
@@ -993,6 +996,38 @@ async function processNightResult() {
   }
 }
 
+/**
+ * 跟票：返回当前得票最多的玩家 ID（排除自己）
+ * 平票补投阶段（isTieVote）只统计/选择平票玩家
+ */
+function getMostVotedTarget(
+  votes: Record<string, string>,
+  state: GameState,
+  excludeId: string,
+  isTieVote: boolean,
+): string | null {
+  const validIds = new Set(
+    state.players
+      .filter(p => p.isAlive && p.id !== excludeId && (!isTieVote || state.tiePlayerIds.includes(p.id)))
+      .map(p => p.id)
+  );
+  const voteCount: Record<string, number> = {};
+  Object.values(votes).forEach(targetId => {
+    if (!targetId || targetId === 'skip') return;
+    if (!validIds.has(targetId)) return;
+    voteCount[targetId] = (voteCount[targetId] || 0) + 1;
+  });
+  let maxCount = 0;
+  let mostVoted: string | null = null;
+  Object.entries(voteCount).forEach(([id, count]) => {
+    if (count > maxCount) {
+      maxCount = count;
+      mostVoted = id;
+    }
+  });
+  return mostVoted;
+}
+
 async function processAIVotes() {
   const state = useGameStore.getState().gameState;
   if (!state || state.phase !== 'day-vote') return;
@@ -1043,10 +1078,18 @@ async function processAIVotes() {
     }
   }
 
-  // 确保所有 AI 都有投票（处理失败或 API 调用异常的）
+  // 确保所有 AI 都有投票（处理失败或 API 调用异常/回复不符合格式的）
+  // 规则：不随机投，改为跟票票数最多的玩家
   // 平票补投阶段，排除平票玩家自己
   const aiToFill = aliveAI.filter(ai => !votes[ai.id] && (!isTieVote || !tieVoterIds.has(ai.id)));
   for (const ai of aiToFill) {
+    // 优先跟票：投当前得票最多的存活玩家（平票补投阶段限定平票玩家）
+    const mostVotedId = getMostVotedTarget(votes, state, ai.id, isTieVote);
+    if (mostVotedId) {
+      votes[ai.id] = mostVotedId;
+      continue;
+    }
+    // 尚无任何人投票时，回退随机
     let candidates: Player[];
     if (isTieVote) {
       // 只能投平票玩家

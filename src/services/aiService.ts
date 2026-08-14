@@ -1885,16 +1885,11 @@ export async function aiTieVote(
       return { targetId, reason };
     }
 
-    // 如果找不到有效目标或不在平票玩家中，随机投一个平票玩家
-    const candidates = state.players.filter(p => p.isAlive && state.tiePlayerIds.includes(p.id) && p.id !== player.id);
-    return noReasonResult(candidates.length > 0
-      ? candidates[Math.floor(Math.random() * candidates.length)].id
-      : null);
+    // 如果找不到有效目标或不在平票玩家中，不随机投，交给调用方跟票处理
+    return noReasonResult(null);
   } catch {
-    const candidates = state.players.filter(p => p.isAlive && state.tiePlayerIds.includes(p.id) && p.id !== player.id);
-    return noReasonResult(candidates.length > 0
-      ? candidates[Math.floor(Math.random() * candidates.length)].id
-      : null);
+    // 解析失败，不随机投，交给调用方跟票处理
+    return noReasonResult(null);
   }
 }
 
@@ -1941,16 +1936,11 @@ export async function aiVote(
     const targetId = findPlayerIdByName(name, state);
     if (targetId && targetId !== player.id) return { targetId, reason };
 
-    // 如果找不到有效目标，随机投
-    const candidates = state.players.filter(p => p.isAlive && p.id !== player.id);
-    return noReasonResult(candidates.length > 0
-      ? candidates[Math.floor(Math.random() * candidates.length)].id
-      : null);
+    // 如果找不到有效目标，不随机投，交给调用方跟票处理
+    return noReasonResult(null);
   } catch {
-    const candidates = state.players.filter(p => p.isAlive && p.id !== player.id);
-    return noReasonResult(candidates.length > 0
-      ? candidates[Math.floor(Math.random() * candidates.length)].id
-      : null);
+    // 解析失败，不随机投，交给调用方跟票处理
+    return noReasonResult(null);
   }
 }
 
