@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sun, Vote, MessageSquare, Gavel, Send, User, Bot } from 'lucide-react';
+import { Sun, Vote, MessageSquare, Gavel, Send, User, Bot, Crosshair } from 'lucide-react';
 import { GameState, Player, DiscussionMessage } from '../types/game';
 import PlayerList from './PlayerList';
 import { useGameStore, nextLogId, dedupeLogs } from '../store/gameStore';
@@ -123,36 +123,65 @@ const DayPhase: React.FC<DayPhaseProps> = ({ gameState, userPlayer, onVote, onAd
             <h3 className="text-xs font-bold text-primary-300 mb-2">🌙 昨夜情况：</h3>
             {(() => {
               const nightDeathNames: string[] = [];
+              const hunterShots: { hunter: string; target: string }[] = [];
               for (const log of gameState.logs) {
-                if (log.round === gameState.round && log.phase === 'night-result') {
-                  const match = log.message.match(/昨晚，(.+?) 死了/);
-                  if (match) nightDeathNames.push(match[1]);
+                if (log.round !== gameState.round || log.phase !== 'night-result') continue;
+                const match = log.message.match(/昨晚，(.+?) 死了/);
+                if (match) nightDeathNames.push(match[1]);
+                // 夜晚被狼刀死的猎人开枪：night-result 日志中的「XX（猎人）在临死前开枪带走了 YY！」
+                const shotMatch = log.message.match(/^(.+?)（猎人）在临死前开枪带走了 (.+?)！$/);
+                if (shotMatch) {
+                  hunterShots.push({
+                    hunter: shotMatch[1].replace(/（你）/g, ''),
+                    target: shotMatch[2].replace(/（你）/g, ''),
+                  });
                 }
               }
               const uniqueNames = [...new Set(nightDeathNames)];
-              if (uniqueNames.length > 0) {
-                return (
-                  <div className="flex items-center gap-2 p-2.5 bg-blood-500/5 border border-blood-500/20 rounded-xl">
-                    <span className="text-xl">💀</span>
-                    <div>
-                      <p className="text-blood-400 font-medium text-sm">
-                        {uniqueNames.join(' 和 ')} 死了
-                      </p>
-                      <p className="text-primary-500 text-xs mt-0.5">昨晚有人死亡</p>
+              const hasShots = hunterShots.length > 0;
+              return (
+                <>
+                  {uniqueNames.length > 0 ? (
+                    <div className="flex items-center gap-2 p-2.5 bg-blood-500/5 border border-blood-500/20 rounded-xl">
+                      <span className="text-xl">💀</span>
+                      <div>
+                        <p className="text-blood-400 font-medium text-sm">
+                          {uniqueNames.join(' 和 ')} 死了
+                        </p>
+                        <p className="text-primary-500 text-xs mt-0.5">昨晚有人死亡</p>
+                      </div>
                     </div>
-                  </div>
-                );
-              } else {
-                return (
-                  <div className="flex items-center gap-2 p-2.5 bg-green-500/5 border border-green-500/20 rounded-xl">
-                    <span className="text-xl">🌙</span>
-                    <div>
-                      <p className="text-green-400 font-medium text-sm">昨晚是平安夜</p>
-                      <p className="text-primary-500 text-xs mt-0.5">无人死亡</p>
+                  ) : (
+                    !hasShots && (
+                      <div className="flex items-center gap-2 p-2.5 bg-green-500/5 border border-green-500/20 rounded-xl">
+                        <span className="text-xl">🌙</span>
+                        <div>
+                          <p className="text-green-400 font-medium text-sm">昨晚是平安夜</p>
+                          <p className="text-primary-500 text-xs mt-0.5">无人死亡</p>
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {/* 猎人开枪公告（常驻展示） */}
+                  {hunterShots.map((shot, idx) => (
+                    <div
+                      key={idx}
+                      className="mt-2 flex items-center gap-2.5 p-3 bg-orange-500/10 border border-orange-500/40 rounded-xl animate-fade-in"
+                    >
+                      <Crosshair className="w-5 h-5 text-orange-400 shrink-0" />
+                      <div>
+                        <p className="text-sm">
+                          <strong className="text-orange-300 font-bold">{shot.hunter}</strong>
+                          <span className="text-primary-300">（猎人）开枪带走了 </span>
+                          <strong className="text-blood-400 font-bold">{shot.target}</strong>
+                        </p>
+                        <p className="text-primary-500 text-xs mt-0.5">猎人临死前发动了技能</p>
+                      </div>
                     </div>
-                  </div>
-                );
-              }
+                  ))}
+                </>
+              );
             })()}
           </div>
 

@@ -113,7 +113,7 @@ const Lobby: React.FC<LobbyProps> = ({ username, selectedCount, onSelectCount, o
             </div>
             <div className="space-y-2">
               <p><strong className="text-cyan-400">🧪 女巫：</strong>拥有一瓶解药和一瓶毒药，各可使用一次。</p>
-              <p><strong className="text-orange-400">🏹 猎人：</strong>被放逐或杀害时可以开枪带走一人。夜晚死亡时开枪不暴露身份，白天被放逐时会公开猎人身份。</p>
+              <p><strong className="text-orange-400">🏹 猎人：</strong>被放逐或被狼人杀害时可以开枪带走一人，开枪后全场公开猎人身份及带走目标；被女巫毒死时不能开枪，只报死亡。</p>
               <p><strong className="text-green-400">🛡️ 守卫：</strong>每晚可守护一名玩家，不能连续守同一人。</p>
             </div>
           </div>

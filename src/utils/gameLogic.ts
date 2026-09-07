@@ -29,7 +29,7 @@ export const ROLE_INFO: Record<Role, { name: string; icon: string; description: 
   hunter: {
     name: '猎人',
     icon: '🏹',
-    description: '被投票放逐或被狼人杀害时，可以开枪带走一名玩家。夜晚死亡开枪不暴露身份（无声），白天被放逐开枪会公开猎人身份及带走谁。',
+    description: '被投票放逐或被狼人杀害时，可以开枪带走一名玩家。开枪后全场公开猎人身份及带走谁；被女巫毒死时不能开枪，只报死亡。',
     team: 'good',
   },
   guard: {

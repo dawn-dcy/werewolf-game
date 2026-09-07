@@ -353,28 +353,16 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({ gameState, onAdvance }) =
           </div>
         )}
 
-        {/* Manual advance buttons for day phases when human is dead */}
+        {/* Day phases when human is dead: AI 自动推进，旁观者不能跳过 */}
         {phase === 'day-discussion' && (
           <div className="text-center mb-4">
-            <p className="text-primary-400 text-xs mb-2">💬 等待 AI 发言中...</p>
-            <button
-              onClick={onAdvance}
-              className="px-6 py-2 bg-primary-700 hover:bg-primary-600 text-primary-200 text-sm font-medium rounded-lg cursor-pointer transition-all"
-            >
-              🗳️ 跳过讨论，进入投票
-            </button>
+            <p className="text-primary-400 text-xs">💬 等待 AI 发言中...</p>
           </div>
         )}
 
         {phase === 'day-vote' && (
           <div className="text-center mb-4">
-            <p className="text-primary-400 text-xs mb-2">🗳️ 等待 AI 投票中...</p>
-            <button
-              onClick={onAdvance}
-              className="px-6 py-2 bg-primary-700 hover:bg-primary-600 text-primary-200 text-sm font-medium rounded-lg cursor-pointer transition-all"
-            >
-              📋 立即开票
-            </button>
+            <p className="text-primary-400 text-xs">🗳️ 等待 AI 投票中...</p>
           </div>
         )}
 

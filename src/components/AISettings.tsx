@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Key, Globe, Cpu, X, Save, AlertCircle, CheckCircle2, Brain } from 'lucide-react';
+import { Settings, Key, Globe, Cpu, X, Save, AlertCircle, CheckCircle2, Brain, FileText } from 'lucide-react';
 import { AIConfig, loadAIConfig, saveAIConfig } from '../services/aiService';
 
 interface AISettingsProps {
@@ -75,9 +75,12 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
         body: JSON.stringify({
           model: config.model,
           messages: [{ role: 'user', content: '请回复"连接成功"四个字。' }],
+          reasoning_effort: 'low',
           max_tokens: 1024,
           temperature: 0,
-          extra_body: { enable_thinking: config.thinking },
+          // DeepSeek 官方格式（deepseek-v4 系列）：thinking.type 控制思考模式开关
+          extra_body: { thinking: { type: config.thinking ? 'enabled' : 'disabled' } },
+          // 以下为旧参数，保留以兼容 deepseek-chat/reasoner 等旧模型
           chat_template_kwargs: { enable_thinking: config.thinking },
           enable_thinking: config.thinking,
         }),
@@ -218,7 +221,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
               </div>
               <div>
                 <div className="text-sm font-medium text-primary-200">思考模式</div>
-                <div className="text-[10px] text-primary-500">兼容 extra_body / chat_template_kwargs / enable_thinking 三种配置方式</div>
+                <div className="text-[10px] text-primary-500">按官方格式 extra_body.thinking.type 控制（enabled / disabled）</div>
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -229,6 +232,28 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
                 className="sr-only peer"
               />
               <div className="w-10 h-5 bg-primary-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:bg-purple-500 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-primary-300 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+            </label>
+          </div>
+
+          {/* Round summary toggle */}
+          <div className="flex items-center justify-between bg-primary-800/30 border border-primary-700/30 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-primary-200">轮次总结</div>
+                <div className="text-[10px] text-primary-500">开启后对每轮讨论发言与出局玩家遗言生成摘要；关闭则保留完整原文</div>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.roundSummary}
+                onChange={(e) => setConfig({ ...config, roundSummary: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5 bg-primary-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:bg-cyan-500 after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-primary-300 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
             </label>
           </div>
 

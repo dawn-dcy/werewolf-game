@@ -1,5 +1,5 @@
 ﻿import { create } from 'zustand';
-import { GameState, GamePhase, Role, Player, RoundSummary, NightActionRecord, HunterShootPending, GameLog } from '../types/game';
+import { GameState, GamePhase, Role, Player, GameLog } from '../types/game';
 import { shuffleRoles, generateAINames, generateAvatarSeed, checkGameOver, getRoleDistribution } from '../utils/gameLogic';
 import {
   aiWerewolfChooseTarget,
@@ -11,19 +11,16 @@ import {
   aiVote,
   aiTieVote,
   isAIConfigured,
+  isRoundSummaryEnabled,
   callLLM,
-  buildRoleSystemPrompt,
-  buildWerewolfNightVoteContext,
+  buildWerewolfNightVoteMessages,
+  buildLastWordsMessages,
   extractPlayerName,
   findPlayerIdByName,
   generateRoundSummary,
   generateFallbackSummary,
   aiHunterChooseTarget,
   aiSelectMVP,
-  getRoundHistory,
-  buildPlayerActionHistory,
-  getAIName,
-  type ChatMessage,
 } from '../services/aiService';
 
 interface GameStore {
@@ -374,11 +371,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (isAIConfigured()) {
       const results = await Promise.allSettled(
         aiWerewolves.map(async (wolf) => {
-          const messages: ChatMessage[] = [
-            { role: 'system', content: buildRoleSystemPrompt('werewolf', wolf.name, state) },
-            { role: 'user', content: buildWerewolfNightVoteContext(state, wolf, userPlayer.name, playerId) },
-          ];
-          const response = await callLLM(messages);
+          const response = await callLLM(buildWerewolfNightVoteMessages(state, wolf, userPlayer.name, playerId));
           return { wolfId: wolf.id, response };
         })
       );
@@ -511,21 +504,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const pending = state.hunterShootPending;
     if (!pending) return;
     
-    const { hunterId, returnPhase, updatedPlayers, logs, nightActions, previousDayVotes, previousDayVoteReasons } = pending;
+    const { hunterId, returnPhase, updatedPlayers, logs, previousDayVotes, previousDayVoteReasons } = pending;
     const hunter = updatedPlayers.find(p => p.id === hunterId);
     const target = updatedPlayers.find(p => p.id === targetId);
     if (!hunter || !target || !target.isAlive) return;
     
-    // 猎人开枪（白天放逐→暴露猎人身份；夜晚死亡→不暴露，只记录死亡）
+    // 猎人开枪：白天被放逐或被狼人刀死都可以开枪，开枪后公开宣布猎人身份及带走目标
+    // （被女巫毒死的猎人不能开枪，不会走到这里）
     target.isAlive = false;
     const isNightDeath = returnPhase === 'night-result';
     logs.push({
       id: nextLogId(),
       round: state.round,
       phase: returnPhase,
-      message: isNightDeath
-        ? `${target.name} 死了。`
-        : `${hunter.name}（猎人）在临死前开枪带走了 ${target.name}！`,
+      message: `${hunter.name}（猎人）在临死前开枪带走了 ${target.name}！`,
       timestamp: Date.now(),
     });
     
@@ -757,19 +749,13 @@ async function resolveHunterShoots(
       const fallback = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
       fallback.isAlive = false;
       shotIds.push(fallback.id);
-      if (isNightDeath) {
-        messages.push(`昨晚，${fallback.name} 死了。`);
-      } else {
-        messages.push(`${deadPlayer.name}（猎人）在临死前开枪带走了 ${fallback.name}！`);
-      }
+      // 只要猎人成功开枪（白天被放逐或被狼人刀死），都公开宣布猎人身份及带走目标
+      messages.push(`${deadPlayer.name}（猎人）在临死前开枪带走了 ${fallback.name}！`);
     } else {
       shot.isAlive = false;
       shotIds.push(shot.id);
-      if (isNightDeath) {
-        messages.push(`昨晚，${shot.name} 死了。`);
-      } else {
-        messages.push(`${deadPlayer.name}（猎人）在临死前开枪带走了 ${shot.name}！`);
-      }
+      // 只要猎人成功开枪（白天被放逐或被狼人刀死），都公开宣布猎人身份及带走目标
+      messages.push(`${deadPlayer.name}（猎人）在临死前开枪带走了 ${shot.name}！`);
     }
   }
   return { messages, shotIds };
@@ -787,7 +773,9 @@ async function processNightResult() {
   const updatedPlayers = state.players.map(p => ({ ...p }));
   const logs = [...state.logs];
   let killedId: string | null = null;
-  let witchSavedSomeone = false; // 女巫是否使用了解药救人（区别于守卫守护）
+  let witchSavedSomeone = false; // 女巫是否使用解药且单独救活（平安夜）
+  let witchUsedAntidote = false; // 女巫是否使用了解药（含同守同救等救活失败的场景）
+  let doubleProtect = false;     // 是否发生同守同救（守卫+女巫同时保护同一人）
   let guardSavedSomeone = false; // 守卫是否成功守护
   let poisoned = false;
 
@@ -801,6 +789,8 @@ async function processNightResult() {
 
     // 同守同救：守卫和女巫同时保护同一人，保护失效，目标死亡，女巫解药消耗
     if (guarded && witchSaved) {
+      witchUsedAntidote = true;
+      doubleProtect = true;
       const target = updatedPlayers.find(p => p.id === state.werewolfTargetId);
       if (target) {
         target.isAlive = false;
@@ -827,6 +817,7 @@ async function processNightResult() {
       });
     } else if (witchSaved) {
       witchSavedSomeone = true;
+      witchUsedAntidote = true;
       const witch = updatedPlayers.find(p => p.role === 'witch');
       if (witch) witch.hasAntidote = false;
       logs.push({
@@ -911,7 +902,7 @@ async function processNightResult() {
     return;
   }
   
-  // AI 猎人开枪（夜晚死亡，不暴露猎人身份）
+  // AI 猎人开枪（夜晚被狼人刀死，公开宣布猎人身份及带走目标）
   if (hunterDeadIds.length > 0) {
     const { messages: hunterMessages } = await resolveHunterShoots(state, hunterDeadIds, updatedPlayers, true);
     for (const msg of hunterMessages) {
@@ -951,12 +942,13 @@ async function processNightResult() {
       nightActions.push({ round: r, phase: 'night-seer', actorId: seer.id, actorName: seer.name, actorRole: 'seer', action: `预言家查验（${target?.role === 'werewolf' ? '狼人' : '好人'}）`, targetId: state.seerCheckTargetId, targetName: target?.name || '未知' });
     }
   }
-  // 女巫行动（仅当女巫真正使用了药水时才记录）
-  if (witchSavedSomeone) {
+  // 女巫行动（只要女巫使用了药水就记录，含同守同救导致救活失败的场景）
+  if (witchUsedAntidote) {
     const witch = state.players.find(p => p.role === 'witch');
     const target = state.players.find(p => p.id === state.werewolfTargetId);
     if (witch) {
-      nightActions.push({ round: r, phase: 'night-witch', actorId: witch.id, actorName: witch.name, actorRole: 'witch', action: '使用解药救人', targetId: state.werewolfTargetId, targetName: target?.name || '未知' });
+      const actionLabel = doubleProtect ? '使用解药救人（同守同救，保护失效）' : '使用解药救人';
+      nightActions.push({ round: r, phase: 'night-witch', actorId: witch.id, actorName: witch.name, actorRole: 'witch', action: actionLabel, targetId: state.werewolfTargetId, targetName: target?.name || '未知' });
     }
   }
   if (poisoned && state.witchKillTargetId) {
@@ -971,7 +963,9 @@ async function processNightResult() {
     const guard = state.players.find(p => p.role === 'guard');
     const target = state.players.find(p => p.id === state.guardProtectTargetId);
     if (guard) {
-      const actionLabel = guardSavedSomeone ? '守卫守护（成功）' : '守卫守护';
+      const actionLabel = guardSavedSomeone
+        ? '守卫守护（成功）'
+        : (doubleProtect ? '守卫守护（同守同救，保护失效）' : '守卫守护');
       nightActions.push({ round: r, phase: 'night-guard', actorId: guard.id, actorName: guard.name, actorRole: 'guard', action: actionLabel, targetId: state.guardProtectTargetId, targetName: target?.name || '未知' });
     }
   }
@@ -1445,8 +1439,9 @@ function autoSkipPhases() {
   if (!state) return;
 
   // night-summary: 生成轮次摘要（在狼人行动前，后台执行）
+  // 若用户关闭了「轮次总结」，则跳过摘要生成，保留每轮完整讨论发言与遗言原文供 AI 分析
   if (state.phase === 'night-summary') {
-    if (state._isGeneratingSummary) {
+    if (state._isGeneratingSummary && isRoundSummaryEnabled()) {
       const finishingRound = state.round - 1; // 刚结束的轮次
       generateRoundSummary(state, finishingRound).then(summary => {
         const s = useGameStore.getState().gameState;
@@ -1472,6 +1467,9 @@ function autoSkipPhases() {
           useGameStore.getState().advancePhase();
         }
       });
+    } else {
+      // 未开启轮次总结：不生成摘要，直接进入夜晚行动
+      setTimeout(() => useGameStore.getState().advancePhase(), 200);
     }
     return;
   }
@@ -1770,117 +1768,12 @@ const lastWordsFallbacks: Record<string, string[]> = {
 let generatingLastWords = false;
 
 async function generateAILastWords(state: GameState, exiledPlayer: Player) {
-  const roleName = ROLE_NAMES[exiledPlayer.role];
   let content: string | null = null;
 
-  // 调用 LLM 生成遗言
+  // 调用 LLM 生成遗言（多消息结构：system → 稳定历史 → 角色私密 → 投票详情与遗言指令）
   if (isAIConfigured()) {
     try {
-      // 构建投票详情
-      const voteRecords = state.previousDayVotes || {};
-      const voteReasons = state.previousDayVoteReasons || {};
-      const playerMap = new Map(state.players.map(p => [p.id, p]));
-      const exiledVoters: string[] = [];
-      const otherVoters: string[] = [];
-      for (const [voterId, targetId] of Object.entries(voteRecords)) {
-        const voter = playerMap.get(voterId);
-        if (!voter) continue;
-        const voterName = getAIName(voter);
-        const target = targetId === 'skip' ? null : playerMap.get(targetId);
-        const targetName = targetId === 'skip' ? '弃票' : (target ? getAIName(target) : '未知');
-        const reason = voteReasons[voterId] || '';
-        const entry = `${voterName}→${targetName}`;
-        if (targetId === exiledPlayer.id) {
-          exiledVoters.push(entry);
-        } else {
-          otherVoters.push(entry);
-        }
-      }
-      const voteCount = exiledVoters.length;
-      const voteDetailStr = [
-        `投给 ${getAIName(exiledPlayer)} 的玩家（${voteCount}票）：`,
-        ...(exiledVoters.length > 0 ? exiledVoters.map(v => `  - ${v}`) : ['  （无）']),
-        '',
-        '其他投票：',
-        ...(otherVoters.length > 0 ? otherVoters.map(v => `  - ${v}`) : ['  （无）']),
-      ].join('\n');
-
-      // 存活/死亡玩家列表
-      const alivePlayers = state.players.filter(p => p.isAlive);
-      const deadPlayers = state.players.filter(p => !p.isAlive);
-
-      // 构建角色专属信息（参考 buildVoteContext 的结构）
-      let rolePrivateInfo = '';
-      if (exiledPlayer.role === 'werewolf') {
-        const teammates = state.players.filter(
-          p => p.role === 'werewolf' && p.id !== exiledPlayer.id
-        );
-        rolePrivateInfo = `- 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
-- 你的目标是淘汰好人阵营，可以在遗言中混淆视听
-- ⚠️ 遗言中绝对不要暴露狼队友的身份，但可以暗示某些好人是狼
-- 可以把嫌疑引向好人，说怀疑某人的表现`;
-      } else if (exiledPlayer.role === 'seer') {
-        rolePrivateInfo = '- 你是预言家，可以在遗言中透露你的查验信息来帮助好人阵营\n- 如果查到了狼人，一定要在遗言中说出来\n- 如果没有查到狼人，也要把你查验过的好人告诉大家，帮助缩小范围';
-      } else if (exiledPlayer.role === 'witch') {
-        rolePrivateInfo = `- 你是女巫
-- 你的解药：${exiledPlayer.hasAntidote ? '✅ 可用（但你已经死了，无法使用）' : '❌ 已使用'}
-- 你的毒药：${exiledPlayer.hasPoison ? '✅ 可用（但你已经死了，无法使用）' : '❌ 已使用'}
-- 如果你用过药，可以在遗言中透露相关信息帮助好人`;
-      } else if (exiledPlayer.role === 'guard') {
-        rolePrivateInfo = '- 你是守卫，可以在遗言中透露你的守护记录帮助好人分析';
-      } else if (exiledPlayer.role === 'hunter') {
-        rolePrivateInfo = '- 你是猎人，如果你已经开了枪，可以在遗言中表达你的感受和判断';
-      } else if (exiledPlayer.role === 'villager') {
-        rolePrivateInfo = '- 你是普通村民，没有特殊信息\n- 可以基于你在讨论中观察到的异常行为来分析谁最可疑';
-      }
-
-      // 构建完整的上下文提示词
-      const prompt = `## 当前游戏状态
-
-### 第 ${state.round + 1} 轮 - 遗言阶段
-
-### ⚠️ 你被投票放逐出局了！
-- 你的名字：${getAIName(exiledPlayer)}
-- 你的身份：${roleName}
-- 你获得了 ${voteCount} 票
-
-### 🗳️ 本轮投票详情：
-${voteDetailStr}
-
-### 当前存活玩家（${alivePlayers.length}人）：
-${alivePlayers.map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 已死亡玩家（${deadPlayers.length}人）：
-${deadPlayers.length > 0 ? deadPlayers.map(p => `- ${getAIName(p)}`).join('\n') : '（暂无其他死亡玩家）'}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, exiledPlayer.id)}
-
-### 🔒 只有你知道的信息：
-${rolePrivateInfo}
-
-### 📋 你的历史操作记录：
-${buildPlayerActionHistory(state, exiledPlayer)}
-
----
-
-你在本轮白天被投票放逐，这是你最后一次发言机会。请发表一段有质量的遗言。
-
-遗言要求：
-- 根据你的角色身份和阵营立场来发表合理的遗言
-- 可以基于讨论中的信息和投票结果来分析场上局势
-${exiledPlayer.role === 'werewolf' ? '- ⚠️ 你是狼人，遗言中要混淆视听，可以暗示好人是狼人，但绝对不能暴露你的狼队友！' : ''}
-${exiledPlayer.role === 'seer' ? '- 你是预言家，如果查验到了狼人一定要说出来，遗言是好人的最后希望' : ''}
-- 发言长度：100-500字，要有实质内容，不要空洞
-
-请严格按照以下格式回复（只回复遗言内容，不要加任何前缀、标签或说明）：
-你的遗言内容`;
-
-      const messages: ChatMessage[] = [
-        { role: 'system', content: buildRoleSystemPrompt(exiledPlayer.role, exiledPlayer.name, state) + '\n\n你刚刚在本轮白天被投票放逐出局，这是你发表遗言的时刻。请根据你的角色身份和阵营，发表一段符合你立场的遗言。' },
-        { role: 'user', content: prompt },
-      ];
-      const response = await callLLM(messages);
+      const response = await callLLM(buildLastWordsMessages(state, exiledPlayer));
       if (response && response.length >= 20 && response.length <= 500) {
         content = response;
       }

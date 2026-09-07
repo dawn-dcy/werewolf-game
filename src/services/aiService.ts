@@ -19,6 +19,7 @@ export interface AIConfig {
   maxTokens: number;    // Max tokens per response
   temperature: number;  // 0.0-2.0
   thinking: boolean;    // 是否开启思考模式（DeepSeek 等模型支持）
+  roundSummary: boolean; // 是否开启轮次总结（对每轮讨论发言与出局玩家遗言生成摘要）
 }
 
 const DEFAULT_CONFIG: AIConfig = {
@@ -28,6 +29,7 @@ const DEFAULT_CONFIG: AIConfig = {
   maxTokens: 8192,
   temperature: 1,
   thinking: true,
+  roundSummary: true,
 };
 
 let currentConfig: AIConfig = { ...DEFAULT_CONFIG };
@@ -58,6 +60,11 @@ export function getAIConfig(): AIConfig {
 
 export function isAIConfigured(): boolean {
   return currentConfig.apiKey.trim().length > 0;
+}
+
+/** 是否开启轮次总结（对每轮讨论发言与出局玩家遗言生成摘要） */
+export function isRoundSummaryEnabled(): boolean {
+  return loadAIConfig().roundSummary;
 }
 
 // ============ 角色名称映射 ============
@@ -106,8 +113,8 @@ function buildGameRules(state: GameState): string {
     werewolf: `- 🐺 **狼人**：属于狼人阵营。每晚必须击杀一名玩家（不能空刀）。狼人之间互相认识（知道谁是队友），但不知道其他玩家的具体身份。白天需要伪装成好人发言，引导其他人投票出局好人。本局共 ${roleCounts.get('werewolf') || 0} 名狼人。`,
     villager: `- 👤 **村民**：属于好人阵营。没有特殊技能，通过推理和投票找出狼人。本局共 ${roleCounts.get('villager') || 0} 名村民。`,
     seer: `- 🔮 **预言家**：属于好人阵营。每晚可以查验一名玩家的身份，得知他是"狼人"还是"好人"（但不会知道具体身份如女巫、猎人等）。`,
-    witch: `- 🧪 **女巫**：属于好人阵营。拥有一瓶解药（救活被狼人杀的玩家）和一瓶毒药（毒杀一名玩家），每瓶药各只能使用一次。女巫在使用解药之前，知道每晚谁被狼人杀害了；解药用掉之后，不再得知当夜的击杀目标。`,
-    hunter: `- 🏹 **猎人**：属于好人阵营。被投票放逐或被狼人杀害时，可以开枪带走一名玩家。⚠️ 重要：如果猎人夜晚被狼人杀害，开枪不会暴露猎人身份（大家只会看到多死了一个人）；如果猎人白天被投票放逐，全场会公开宣布猎人身份及其开枪带走了谁。`,
+    witch: `- 🧪 **女巫**：属于好人阵营。拥有一瓶解药（救活被狼人杀的玩家）和一瓶毒药（毒杀一名玩家），每瓶药各只能使用一次。女巫在使用解药之前，知道每晚谁被狼人杀害了；解药用掉之后，不再得知当夜的击杀目标。⚠️ 同守同救：如果你用解药救的目标恰好也被守卫守护了，保护会失效，该目标依然会死亡（不是平安夜），解药照常消耗。`,
+    hunter: `- 🏹 **猎人**：属于好人阵营。被投票放逐或被狼人杀害时，可以开枪带走一名玩家。⚠️ 重要：只要猎人成功开枪（无论是白天被投票放逐，还是夜晚被狼人杀害），全场都会公开宣布猎人身份及其开枪带走了谁；但猎人被女巫毒死时不能开枪，大家只会看到死亡公告，无法确定其猎人身份。`,
     guard: `- 🛡️ **守卫**：属于好人阵营。每晚可以守护一名玩家，使其当晚不会被狼人杀死。不能连续两晚守护同一名玩家。`,
   };
 
@@ -137,7 +144,7 @@ function buildGameRules(state: GameState): string {
   specialRules.push('- 预言家查验结果只有"狼人"或"好人"');
   specialRules.push('- 每位玩家在白天发言的时候，应该表露一下自己的身份，可以是真的也可以是假的，基于自己的立场决定');
   if (roleCounts.get('hunter')) {
-    specialRules.push('- ⚠️ 猎人规则：夜晚被狼人杀害时开枪不暴露身份（大家只会看到多死一人，不知道是猎人开枪）；白天被投票放逐时，全场会公开宣布猎人身份及带走目标');
+    specialRules.push('- ⚠️ 猎人规则：只要猎人成功开枪（白天被投票放逐或被狼人杀害均可），全场就会公开宣布猎人身份及带走目标，大家都能明确知道谁是猎人；但猎人被女巫毒死时不能开枪，只会看到死亡公告，无法确定其猎人身份');
   }
   specialRules.push('- ⚠️ 唯一身份规则：所有神职（预言家、女巫、猎人、守卫）都只有1个！如果有人声称和你相同的角色，那他100%在说谎。可能是村民穿神衣服挡刀，但更大的可能是狼人悍跳——狼人悍跳神职是很常见的战术，意图是混淆视听、骗取信任或逼真正神职暴露身份');
   specialRules.push('- ⚠️ 遗言声明：被投票放逐的玩家可以发表遗言，但遗言内容及其声称的身份均不一定真实，可能包含误导或虚假信息，请各位玩家根据游戏局势自行判断其可信度');
@@ -163,24 +170,17 @@ ${activeRoles.map(r => roleDescriptions[r]).join('\n')}
 ${specialRules.join('\n')}
 `;}
 
-// ============ 构建角色专用系统提示词 ============
+// ============ 公共 system 前缀 与 玩家身份块 ============
 
-export function buildRoleSystemPrompt(role: Role, playerName: string, state?: GameState): string {
-  const rules = state ? buildGameRules(state) : '';
+/**
+ * 玩家身份块：玩家名字 + 角色身份 + 角色专属策略/禁止事项。
+ * 内容随玩家、角色变化，统一放在【历史消息之后】的 user 消息中（见各场景构建器），
+ * 避免它在 system 前缀中打断所有玩家/所有角色共享的公共缓存。
+ */
+export function buildPlayerIdentityBlock(role: Role, playerName: string): string {
   const displayName = playerName.replace(/\(你\)$/, '');
-  const base = `${rules}
----
-你正在参与一局狼人杀游戏。你的名字是「${displayName}」。
-请完全代入这个角色进行游戏，用中文回复。
-
-🔴 输出一致性规则（必须遵守）：
-当你需要输出玩家名字+理由时，必须确保你最终输出的名字与你的推理/理由中指向的玩家完全一致。例如：投票格式「玩家名|理由」中，「|」前面的名字必须是你理由中说的要投的那个人；不能说理由里写"投给A"，结果名字却写了B。输出前务必检查确认一致！
-
-🔴 狼人杀核心逻辑（必须理解，不要搞反）：
-1. 【投票放逐=怀疑他是狼人】白天投票放逐某人，说明你认为他是狼人、想把他投出局。投票≠相信他！
-2. 【狼人刀好人】狼人夜晚刀人，目标通常是好人（神职或村民），目的是消灭好人阵营。被狼人选为目标≠说明他是坏人！
-3. 【狼人投票策略】狼人白天会投票给好人（淘汰好人），也可能投票给狼队友（做高队友身份/演戏），甚至还可能自刀或刀队友来骗取信任。
-4. 分析时注意：被投票多的人很可能是被怀疑的对象（可能是狼人也可能是被冤枉的好人），投票给别人的人不一定是好人——狼人也会积极投票引导舆论！`;
+  const base = `你正在参与一局狼人杀游戏。你的名字是「${displayName}」。
+请完全代入这个角色进行游戏，用中文回复。`;
 
   switch (role) {
     case 'werewolf':
@@ -230,6 +230,7 @@ export function buildRoleSystemPrompt(role: Role, playerName: string, state?: Ga
 - 你属于好人阵营。
 - 你的技能：一瓶解药（救人）、一瓶毒药（杀人），各只能用一次。
 - 每晚你会知道谁被狼人杀害了。
+- ⚠️ 同守同救：如果你用解药救的目标恰好也被守卫守护了，保护会失效，该目标依然会死亡（不是平安夜），解药照常消耗。
 - 你的策略：
   1. ⚠️ 第一晚强烈建议使用解药（先救人再说，你不知道被杀的会不会是预言家或其他神职），但是有可能是狼人自刀
   2. 如果你自己被狼人杀害了（这是常见情况），你完全可以而且应该用解药自救！
@@ -247,6 +248,7 @@ export function buildRoleSystemPrompt(role: Role, playerName: string, state?: Ga
 - 你属于好人阵营。
 - 你的技能：每晚可以守护一名玩家，使其不被狼人杀害。
 - 限制：不能连续两晚守护同一名玩家。
+- ⚠️ 同守同救：如果你守护的目标恰好也被女巫用解药救了，保护会失效，该目标依然会被狼人杀死（不是平安夜）。
 - 你的策略：
   1. 优先守护可能被狼人盯上的关键角色（通过讨论中谁被怀疑或被针对来判断）
   2. 如果预言家已经暴露或跳了身份，一定要守护他
@@ -263,8 +265,8 @@ export function buildRoleSystemPrompt(role: Role, playerName: string, state?: Ga
 - 你属于好人阵营。
 - 你的技能：被投票放逐或被狼人杀害时，可以开枪带走一名玩家。
 - ⚠️ 关键规则：
-  - 如果你夜晚被狼人杀害：开枪是无声的，全场不会知道你是猎人，只会看到多死了一个人。
-  - 如果你白天被投票放逐：全场会公开宣布「XX（猎人）在临死前开枪带走了 XX」。
+  - 只要你成功开枪（无论是白天被投票放逐，还是夜晚被狼人杀害）：全场都会公开宣布「XX（猎人）在临死前开枪带走了 XX」，大家会明确知道你是猎人。
+  - 但如果你被女巫毒死：不能开枪，大家只会看到死亡公告，无法确定你是猎人。
 - 你的策略：
   1. 积极参与讨论，大胆发表看法
   2. 自由选择根据场上的局势，是否暴露自己的猎人身份，也可以为了游戏胜利伪装成其他身份
@@ -292,38 +294,99 @@ export function buildRoleSystemPrompt(role: Role, playerName: string, state?: Ga
   }
 }
 
-// ============ 构建具体场景的上下文 ============
+// ============ 构建具体场景的上下文（多消息前缀缓存优化） ============
 
-// 获取所有玩家列表描述
-function getPlayerList(state: GameState): string {
-  return state.players.map(p => {
-    const alive = p.isAlive ? '存活' : '已淘汰';
-    return `- ${getAIName(p)}（${alive}）`;
-  }).join('\n');
+/**
+ * ⚠️ 核心规则提醒（纯静态文本，一局内对所有玩家、所有调用完全一致）。
+ * 追加在 system 提示词末尾，作为请求最前端稳定前缀，利于 LLM 前缀缓存命中。
+ */
+const CORE_RULES_REMINDER = `### ⚠️ 核心规则提醒（所有玩家必读）：
+- 🚫 **狼人绝对不能空刀！** 系统强制狼人每夜必须选择击杀目标，不存在"狼人故意不杀人"的可能性。
+- 如果出现平安夜（无人死亡），可能原因只有：①守卫守护了被狼人刀的目标 ②女巫使用解药救了被狼人刀的目标。
+- ⚠️ **同守同救规则**：如果守卫守护的目标恰好也是女巫用解药救的目标（两人同时保护同一人），两重保护会**相互抵消**，该玩家**必定会被狼人杀死（必然死亡，绝不可能平安夜）**，女巫解药照常消耗。
+- 🔒 **务必牢记的逻辑**：同守同救必然死人，所以**只要出现平安夜，就绝不可能是同守同救**！平安夜的成因只有一种：狼人刀的目标被守卫**或**女巫**其中一方**单独保护了。反过来，只有当你守护/救的人当晚依然死了，那才可能是同守同救。
+- 🏹 猎人规则：只要猎人成功开枪（白天被投票放逐或被狼人杀害），全场都会公开宣布猎人身份及带走目标；被女巫毒死的猎人不能开枪，只会看到死亡公告，无法确定其猎人身份。
+- 请在你的发言和分析中**绝对不要提及"可能是狼人空刀""狼人故意不杀人"这类不可能发生的情况**。`;
+
+/**
+ * 构建公共 system 提示词：游戏规则 + 通用输出原则 + 核心规则提醒。
+ * 不含玩家名与角色身份 → 对本局所有玩家、所有角色、所有调用完全一致，
+ * 作为请求最前端稳定前缀，最大程度提升 LLM 前缀缓存命中率。
+ */
+function buildSystemPrompt(state: GameState): string {
+  return `${buildGameRules(state)}
+---
+请完全代入狼人杀游戏角色进行游戏，用中文回复。
+
+🔴 输出一致性规则（必须遵守）：
+当你需要输出玩家名字+理由时，必须确保你最终输出的名字与你的推理/理由中指向的玩家完全一致。例如：投票格式「玩家名|理由」中，「|」前面的名字必须是你理由中说的要投的那个人；不能说理由里写"投给A"，结果名字却写了B。输出前务必检查确认一致！
+
+🔴 狼人杀核心逻辑（必须理解，不要搞反）：
+1. 【投票放逐=怀疑他是狼人】白天投票放逐某人，说明你认为他是狼人、想把他投出局。投票≠相信他！
+2. 【狼人刀好人】狼人夜晚刀人，目标通常是好人（神职或村民），目的是消灭好人阵营。被狼人选为目标≠说明他是坏人！
+3. 【狼人投票策略】狼人白天会投票给好人（淘汰好人），也可能投票给狼队友（做高队友身份/演戏），甚至还可能自刀或刀队友来骗取信任。
+4. 分析时注意：被投票多的人很可能是被怀疑的对象（可能是狼人也可能是被冤枉的好人），投票给别人的人不一定是好人——狼人也会积极投票引导舆论！
+
+${CORE_RULES_REMINDER}`;
 }
 
-// 获取按轮次组织的完整历史摘要（讨论 + 投票结果）
-// selfPlayerId: 可选，传入后会在该玩家的发言后面标注「你自己」
-export function getRoundHistory(state: GameState, selfPlayerId?: string): string {
+/** 当前存活/已淘汰玩家名单（属于会变化的动态信息，置于消息尾部） */
+function buildAliveDeadSituation(state: GameState): string {
+  const alivePlayers = state.players.filter(p => p.isAlive);
+  const deadPlayers = state.players.filter(p => !p.isAlive);
+  return `### 所有存活玩家：
+${alivePlayers.map(p => `- ${getAIName(p)}`).join('\n')}
+
+### 已淘汰玩家：
+${deadPlayers.length > 0 ? deadPlayers.map(p => `- ${getAIName(p)}`).join('\n') : '（暂无）'}`;
+}
+
+/** 收集指定轮次「夜晚结果」日志中宣布死亡的玩家名（去重），用于讨论/遗言的昨夜情况动态区 */
+function getNightDeathNames(state: GameState, round: number): string[] {
+  const names: string[] = [];
+  for (const log of state.logs) {
+    if (log.round === round && log.phase === 'night-result') {
+      const match = log.message.match(/昨晚，(.+?) 死了/);
+      if (match) names.push(match[1]);
+    }
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * 构建「稳定历史消息序列」（多消息结构，提示词前缀缓存优化的核心）：
+ *
+ * 每条消息对应一个已发生的独立事件，时间正序：
+ *  - assistant：第 N 轮夜晚结果（系统公布）
+ *  - user：第 N 轮每位玩家的发言，一人一条（发言统一不带【你自己】等随玩家变化的标注）
+ *  - user：第 N 轮遗言（跟随被放逐玩家的发言，一人一条）
+ *  - assistant：第 N 轮投票/白天结果（系统公布）
+ *
+ * 历史轮（round < 当前轮）若已生成轮次摘要，则折叠为一条 assistant「轮次回顾」
+ * （讨论、遗言与投票结果已被摘要概括），避免上下文无限膨胀。
+ * 折叠规则固定：某轮一旦生成摘要，后续所有调用对它永远呈现同一折叠形态。
+ *
+ * 缓存原理：此前缀消息只由「已发生且永不改变」的公共事实构成，不含任何随玩家变化的
+ * 私有标注（如【你自己】），因此本局所有玩家的历史前缀完全相同，可在玩家间共享同一段
+ * 提示词前缀缓存；游戏过程中只追加新消息、绝不改写旧消息，连续调用间前缀高度稳定。
+ */
+export function buildGameHistoryMessages(state: GameState): ChatMessage[] {
   const currentRound = state.round;
+  const msgs: ChatMessage[] = [];
 
   // 按轮次分组讨论消息
   const messagesByRound = new Map<number, DiscussionMessage[]>();
   for (const m of state.discussionMessages) {
-    if (!messagesByRound.has(m.round)) {
-      messagesByRound.set(m.round, []);
-    }
+    if (!messagesByRound.has(m.round)) messagesByRound.set(m.round, []);
     messagesByRound.get(m.round)!.push(m);
   }
 
-  // 按轮次提取投票结果日志
-  const voteResultsByRound = new Map<number, string[]>();
+  // 按轮次提取白天结果日志（投票详情/平票/放逐公告/猎人开枪等）
+  const dayResultLogsByRound = new Map<number, string[]>();
   for (const log of state.logs) {
     if (log.phase === 'day-result') {
-      if (!voteResultsByRound.has(log.round)) {
-        voteResultsByRound.set(log.round, []);
-      }
-      voteResultsByRound.get(log.round)!.push(cleanLogMessage(log.message, state));
+      if (!dayResultLogsByRound.has(log.round)) dayResultLogsByRound.set(log.round, []);
+      dayResultLogsByRound.get(log.round)!.push(cleanLogMessage(log.message, state));
     }
   }
 
@@ -342,112 +405,85 @@ export function getRoundHistory(state: GameState, selfPlayerId?: string): string
   const lastWordsByRound = new Map<number, string[]>();
   for (const log of state.logs) {
     if (log.phase === 'day-last-words') {
-      if (!lastWordsByRound.has(log.round)) {
-        lastWordsByRound.set(log.round, []);
-      }
+      if (!lastWordsByRound.has(log.round)) lastWordsByRound.set(log.round, []);
       lastWordsByRound.get(log.round)!.push(cleanLogMessage(log.message, state));
     }
   }
 
-  // 构建 roundSummaries 的快速查找 Map
+  // 轮次摘要查找表
   const summaryMap = new Map<number, string>();
-  for (const s of state.roundSummaries) {
-    summaryMap.set(s.round, s.summary);
-  }
+  for (const s of state.roundSummaries) summaryMap.set(s.round, s.summary);
 
+  // 收集出现过事件的轮次
   const allRounds = new Set<number>();
   messagesByRound.forEach((_, r) => allRounds.add(r));
-  voteResultsByRound.forEach((_, r) => allRounds.add(r));
+  dayResultLogsByRound.forEach((_, r) => allRounds.add(r));
   nightResultsByRound.forEach((_, r) => allRounds.add(r));
   lastWordsByRound.forEach((_, r) => allRounds.add(r));
-  // 也把已有摘要的轮次加入
   summaryMap.forEach((_, r) => allRounds.add(r));
 
-  if (allRounds.size === 0) return '（游戏刚开始，暂无历史记录）';
-
   const sortedRounds = [...allRounds].sort((a, b) => a - b);
-  const parts: string[] = [];
+  const PLACEHOLDER_SUMMARY = '（本轮无讨论发言）';
 
   for (const round of sortedRounds) {
     const isCurrentRound = round === currentRound;
-    const roundLabel = isCurrentRound ? `第 ${round + 1} 轮（本轮）` : `第 ${round + 1} 轮`;
-    parts.push(`\n### ${roundLabel}`);
+    const summary = summaryMap.get(round);
+    // 历史轮已生成有效摘要 → 折叠该轮（判定只取决于已入库的摘要，绝不随时间反复）
+    const collapsed = !isCurrentRound
+      && summary !== undefined
+      && summary.trim() !== ''
+      && summary !== PLACEHOLDER_SUMMARY;
 
-    // 夜晚结果（所有轮次都显示）
+    // 夜晚结果（系统公布 → assistant）
     const nightMsgs = nightResultsByRound.get(round);
     if (nightMsgs && nightMsgs.length > 0) {
-      parts.push('**夜晚结果：**');
-      parts.push(nightMsgs.map(m => `  - ${m}`).join('\n'));
+      msgs.push({
+        role: 'assistant',
+        content: `第 ${round + 1} 轮夜晚结果：\n${nightMsgs.map(m => `- ${m}`).join('\n')}`,
+      });
     }
 
-    // 讨论发言：当前轮完整显示，历史轮显示 AI 摘要
-    const msgs = messagesByRound.get(round);
-    if (msgs && msgs.length > 0) {
-      if (isCurrentRound) {
-        // 当前轮：显示完整发言，标记自己的发言
-        parts.push('**讨论发言：**');
-        parts.push(msgs.map(m => {
-          const isSelf = selfPlayerId !== undefined && m.playerId === selfPlayerId;
-          const cleanName = m.playerName.replace(/\(你\)$/, '');
-          const selfLabel = isSelf ? '【你自己】' : '';
-          return `  - ${cleanName}${selfLabel}：${m.content}`;
-        }).join('\n'));
-      } else {
-        // 历史轮次：优先使用 AI 生成的摘要
-        const summary = summaryMap.get(round);
-        if (summary) {
-          parts.push(`**讨论摘要：** ${summary}`);
-        } else {
-          // 兜底：完整显示历史发言（不再截断），标记自己的发言
-          const preview = msgs.map(m => {
-            const isSelf = selfPlayerId !== undefined && m.playerId === selfPlayerId;
-            const cleanName = m.playerName.replace(/\(你\)$/, '');
-            const selfLabel = isSelf ? '【你自己】' : '';
-            return `${cleanName}${selfLabel}：${m.content}`;
-          }).join('\n');
-          parts.push(`**讨论发言：**\n${preview}`);
-        }
+    // 历史轮有摘要 → 折叠：用一条「轮次回顾」assistant 替代讨论/遗言/投票详情，防止上下文膨胀
+    if (collapsed) {
+      msgs.push({
+        role: 'assistant',
+        content: `第 ${round + 1} 轮轮次回顾（该轮讨论发言、遗言与投票结果摘要）：\n${summary}`,
+      });
+      continue;
+    }
+
+    // 讨论发言：每位玩家独立一条 user 消息（统一不含【你自己】标注，
+    // 保证历史序列对全体玩家完全一致且位置稳定，最大化前缀缓存命中）
+    const spMsgs = messagesByRound.get(round);
+    if (spMsgs && spMsgs.length > 0) {
+      for (const m of spMsgs) {
+        const cleanName = m.playerName.replace(/\(你\)$/, '');
+        msgs.push({
+          role: 'user',
+          content: `第 ${round + 1} 轮 · ${cleanName}：${m.content}`,
+        });
       }
     }
 
-    // 遗言信息（单独展示，不属于讨论摘要）
-    const lastWordsMsgs = lastWordsByRound.get(round);
-    if (lastWordsMsgs && lastWordsMsgs.length > 0) {
-      parts.push('**遗言信息：**');
-      parts.push(lastWordsMsgs.map(m => `  - ${m}`).join('\n'));
+    // 遗言：跟随被放逐玩家的发言之后，独立一条 user 消息
+    const lwMsgs = lastWordsByRound.get(round);
+    if (lwMsgs && lwMsgs.length > 0) {
+      for (const lw of lwMsgs) {
+        msgs.push({ role: 'user', content: `第 ${round + 1} 轮 · 遗言：${lw}` });
+      }
     }
 
-    // 投票结果（所有轮次都显示，这对判断阵营很重要）
-    const voteMsgs = voteResultsByRound.get(round);
-    if (voteMsgs && voteMsgs.length > 0) {
-      parts.push('**投票结果：**');
-      parts.push(voteMsgs.map(m => `  - ${m}`).join('\n'));
+    // 投票/白天结果（系统公布 → assistant）
+    const drMsgs = dayResultLogsByRound.get(round);
+    if (drMsgs && drMsgs.length > 0) {
+      msgs.push({
+        role: 'assistant',
+        content: `第 ${round + 1} 轮投票与白天结果：\n${drMsgs.map(m => `- ${m}`).join('\n')}`,
+      });
     }
   }
 
-  return parts.join('\n');
-}
-
-// 获取历史讨论摘要（用于快速上下文）
-function getDiscussionSummary(state: GameState, maxMessages: number = 10): string {
-  // 只取当前轮的讨论（历史轮次由 getRoundHistory 负责）
-  const currentRound = state.round;
-  const currentRoundMessages = state.discussionMessages.filter(m => m.round === currentRound);
-  const recent = currentRoundMessages.slice(-maxMessages);
-  if (recent.length === 0) return '（还没有人发言）';
-  return recent.map(m => {
-    const cleanName = m.playerName.replace(/\(你\)$/, '');
-    return `${cleanName}：${m.content}`;
-  }).join('\n');
-}
-
-// 获取游戏日志摘要（清理人类玩家名中的 (你)）
-function getGameLogsSummary(state: GameState, maxLogs: number = 8): string {
-  const recent = [...state.logs]
-    .filter(l => l.phase === 'night-result' || l.phase === 'day-result')
-    .slice(-maxLogs);
-  if (recent.length === 0) return '（游戏刚开始）';
-  return recent.map(l => `- ${cleanLogMessage(l.message, state)}`).join('\n');
+  return msgs;
 }
 
 /** 清理日志消息：去掉人类玩家名(你)后缀，剥离遗言中的角色身份信息 */
@@ -459,8 +495,9 @@ function cleanLogMessage(message: string, state: GameState): string {
     cleaned = cleaned.replace(new RegExp(humanPlayer.name.replace(/[()]/g, '\\$&'), 'g'), getAIName(humanPlayer));
   }
   // 剥离中文括号包裹的角色名（如"（狼人）"），防止遗言等场景泄露身份
-  // 注意：不剥离"身份是猎人"模式，因为猎人在白天被放逐时身份公开属于正确游戏行为
-  const roleNames = Object.values(ROLE_NAMES);
+  // 注意：不剥离"（猎人）"——猎人成功开枪后身份公开（白天被放逐或被狼杀），属于正确游戏行为，
+  // 日志中的"XX（猎人）在临死前开枪带走了 XX"应完整保留给所有玩家查看
+  const roleNames = Object.values(ROLE_NAMES).filter(n => n !== '猎人');
   for (const roleName of roleNames) {
     cleaned = cleaned.replace(new RegExp(`（${roleName}）`, 'g'), '');
   }
@@ -580,29 +617,36 @@ export function buildPlayerActionHistory(state: GameState, player: Player): stri
 // ============ 夜晚行动 - 构建每个 AI 角色的上下文 ============
 
 /**
- * 为狼人 AI 构建夜晚击杀选择的上下文
+ * 为狼人 AI 构建夜晚击杀选择的多消息上下文
+ * 结构：system(规则+核心提醒) → 稳定历史消息序列 → user(狼队友+历史操作) → user(当前状态+行动指令)
  * 狼人知道：自己的身份、狼队友是谁、存活玩家列表、之前的讨论和日志
  * 狼人不知道：其他玩家的具体身份
  */
-function buildWerewolfNightContext(state: GameState, player: Player): string {
-  // 你的狼队友（包含已死亡的）
+function buildWerewolfNightMessages(state: GameState, player: Player): ChatMessage[] {
   const werewolfTeammates = state.players.filter(
     p => p.role === 'werewolf' && p.id !== player.id
   );
-
   const alivePlayers = state.players.filter(p => p.isAlive);
 
-  return `## 当前游戏状态
-
-### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（狼人行动）
-
-### 你的狼队友：
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('werewolf', player.name) },
+    {
+      role: 'user',
+      content: `### 你的狼队友：
 ${werewolfTeammates.length > 0
   ? werewolfTeammates.map(w => `- ${getAIName(w)}${w.isAlive ? '（存活）' : '（已死亡）'}`).join('\n')
   : '（你是唯一的狼人，没有队友）'}
 
 ### 你的历史操作：
-${buildPlayerActionHistory(state, player)}
+${buildPlayerActionHistory(state, player)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（狼人行动）
 
 ### 可击杀的目标（所有存活玩家，含狼队友和自己）：
 ${alivePlayers.map(p => `- ${getAIName(p)}`).join('\n')}
@@ -612,22 +656,22 @@ ${state.players.filter(p => !p.isAlive).length > 0
   ? state.players.filter(p => !p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')
   : '（暂无）'}
 
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
 ---
 现在请你选择今晚要击杀的目标（⚠️ 必须选一个存活玩家，狼人绝对不能空刀，系统强制必须杀人）。
 💡 刀人策略：优先刀预言家、女巫等强神职，或者发言逻辑强的好人。可自刀骗解药，也可刀狼队友做身份。
 请只回复玩家的名字，不要包含其他内容。例如：1号
-🔴 输出前检查：如果你的思考中说了要杀X号，那么你回复的名字必须是X号，保持一致！`;
+🔴 输出前检查：如果你的思考中说了要杀X号，那么你回复的名字必须是X号，保持一致！`,
+    },
+  ];
 }
 
 // ============ 轮次讨论摘要生成 ============
 
 /**
- * 调用大模型对已完成轮次的讨论发言进行摘要总结
+ * 调用大模型对已完成轮次的讨论发言（含被淘汰玩家的遗言）进行摘要总结
  * 减少大模型上下文长度，避免过多历史信息导致混乱
  * 如果有玩家跳身份（声称自己是预言家/女巫/猎人/守卫等），摘要必须包含该身份信息
+ * 遗言是公开信息，会连同讨论一起总结进轮次摘要
  */
 export async function generateRoundSummary(state: GameState, round: number): Promise<string> {
   if (!isAIConfigured()) {
@@ -636,17 +680,22 @@ export async function generateRoundSummary(state: GameState, round: number): Pro
   }
 
   const roundMessages = state.discussionMessages.filter(m => m.round === round);
-  if (roundMessages.length === 0) return '（本轮无讨论发言）';
 
-  // 提取该轮的夜晚结果和投票结果（遗言不在此处提取，交由 getRoundHistory 单独展示）
+  // 提取该轮的夜晚结果、投票结果与遗言（遗言一并作为总结素材）
   const nightResults = getNightResultsForRound(state, round);
   const voteResults: string[] = [];
+  const lastWords: string[] = [];
   for (const log of state.logs) {
     if (log.round !== round) continue;
     if (log.phase === 'day-result') {
       voteResults.push(cleanLogMessage(log.message, state));
+    } else if (log.phase === 'day-last-words') {
+      lastWords.push(cleanLogMessage(log.message, state));
     }
   }
+
+  // 该轮既无讨论发言也无遗言，才算空轮，直接返回占位避免无意义调用
+  if (roundMessages.length === 0 && lastWords.length === 0) return '（本轮无讨论发言）';
 
   // 构建发言记录
   const discussionText = roundMessages.map(m => {
@@ -654,15 +703,18 @@ export async function generateRoundSummary(state: GameState, round: number): Pro
     return `${cleanName}：${m.content}`;
   }).join('\n');
 
-  const prompt = `# 狼人杀第 ${round + 1} 轮讨论摘要任务
+  const prompt = `# 狼人杀第 ${round + 1} 轮摘要任务
 
-请将以下狼人杀一轮的完整讨论发言，**压缩总结为一段500字以内的简洁摘要**。
+请将以下狼人杀一轮的完整讨论发言与遗言，**压缩总结为一段500字以内的简洁摘要**。
 
 ## 该轮夜晚结果：
 ${nightResults.length > 0 ? nightResults.map(r => `- ${r}`).join('\n') : '（无特殊事件）'}
 
 ## 该轮所有讨论发言：
 ${discussionText}
+
+## 该轮遗言（被淘汰玩家的最后发言，属于公开信息）：
+${lastWords.length > 0 ? lastWords.map(w => `- ${w}`).join('\n') : '（本轮无人被放逐，无遗言）'}
 
 ## 该轮投票结果：
 ${voteResults.length > 0 ? voteResults.map(r => `- ${r}`).join('\n') : '（无投票记录）'}
@@ -671,11 +723,12 @@ ${voteResults.length > 0 ? voteResults.map(r => `- ${r}`).join('\n') : '（无�
 ### 摘要要求：
 1. 用中文总结本轮发生了哪些关键事件
 2. 总结各玩家的主要观点和立场（谁被怀疑、谁被信任）
-3. ⚠️ **摘要中绝对不能出现任何玩家的真实身份信息**（如"某人是狼人""某人是村民""某人是预言家"等），即使用玩家遗言里说了自己的身份，也不能写进摘要
-4. ⚠️ 如果有玩家在讨论中**主动跳了身份**（声称自己是预言家/女巫/猎人/守卫等），只需记录"X号声称自己是某身份"，不要评价其真假，更不要暴露真实身份
-5. 摘要要简洁客观，只陈述讨论中的事实，不做推理推断
-6. 最终投票结果的详情必须包含
-7. 字数控制在500字以内
+3. **遗言必须被总结进摘要**：概述被淘汰玩家在遗言中表达的观点、留下的线索或怀疑对象（遗言是公开信息，不能遗漏）；但如果遗言声称了自己的身份，只记录"某号声称自己是某身份"，不能当作既成事实
+4. ⚠️ **摘要中绝对不能出现任何玩家的真实身份信息**（如"某人是狼人""某人是村民""某人是预言家"等），即使用玩家遗言里说了自己的身份，也不能写进摘要
+5. ⚠️ 如果有玩家在讨论或遗言中**主动跳了身份**（声称自己是预言家/女巫/猎人/守卫等），只需记录"X号声称自己是某身份"，不要评价其真假，更不要暴露真实身份
+6. 摘要要简洁客观，只陈述讨论中的事实，不做推理推断
+7. 最终投票结果的详情必须包含
+8. 字数控制在500字以内
 
 请直接输出摘要文本，不需要任何格式标记或额外说明。`;
 
@@ -692,28 +745,37 @@ ${voteResults.length > 0 ? voteResults.map(r => `- ${r}`).join('\n') : '（无�
   }
 }
 
-/** 无大模型时生成的兜底摘要 */
+/** 无大模型时生成的兜底摘要（同样会把该轮遗言总结进去） */
 export function generateFallbackSummary(state: GameState, round: number): string {
   const roundMessages = state.discussionMessages.filter(m => m.round === round);
-  if (roundMessages.length === 0) return '（本轮无讨论发言）';
 
-  // 提取关键信息（夜晚结果自动过滤"平安夜"与死亡冲突）
+  // 提取关键信息（夜晚结果自动过滤"平安夜"与死亡冲突；遗言一并纳入）
   const nightResults = getNightResultsForRound(state, round);
   const voteResults: string[] = [];
+  const lastWords: string[] = [];
   for (const log of state.logs) {
     if (log.round !== round) continue;
     if (log.phase === 'day-result') {
       voteResults.push(cleanLogMessage(log.message, state));
+    } else if (log.phase === 'day-last-words') {
+      lastWords.push(cleanLogMessage(log.message, state));
     }
   }
+  // 该轮既无讨论也无遗言时才是空轮
+  if (roundMessages.length === 0 && lastWords.length === 0) return '（本轮无讨论发言）';
 
-  // 检测跳身份关键词
+  // 检测跳身份关键词（覆盖讨论发言与遗言）
   const identityClaims: string[] = [];
-  for (const m of roundMessages) {
-    const cleanName = m.playerName.replace(/\(你\)$/, '');
-    const content = m.content;
-    if (/我是预言家|我是女巫|我是猎人|我是守卫|我是白痴|跳预言家|跳女巫|跳猎人|跳守卫|报身份.*预言家|报身份.*女巫|我的身份是/.test(content)) {
-      identityClaims.push(`${cleanName}声称自己是特定身份`);
+  const claimSources: { name: string; content: string }[] = [
+    ...roundMessages.map(m => ({ name: m.playerName.replace(/\(你\)$/, ''), content: m.content })),
+  ];
+  for (const lw of lastWords) {
+    const nameMatch = lw.match(/💬 (.+?)的遗言：/);
+    if (nameMatch) claimSources.push({ name: nameMatch[1], content: lw });
+  }
+  for (const src of claimSources) {
+    if (/我是预言家|我是女巫|我是猎人|我是守卫|我是白痴|跳预言家|跳女巫|跳猎人|跳守卫|报身份.*预言家|报身份.*女巫|我的身份是/.test(src.content)) {
+      identityClaims.push(`${src.name}声称自己是特定身份`);
     }
   }
 
@@ -721,6 +783,9 @@ export function generateFallbackSummary(state: GameState, round: number): string
   parts.push(`本回合共${roundMessages.length}条发言`);
   if (nightResults.length > 0) {
     parts.push(`夜晚：${nightResults.join('，')}`);
+  }
+  if (lastWords.length > 0) {
+    parts.push(`遗言：${lastWords.map(w => w.replace(/^💬 /, '')).join('；')}`);
   }
   if (identityClaims.length > 0) {
     parts.push(`⚠️ 有玩家跳身份：${identityClaims.join('；')}`);
@@ -732,15 +797,16 @@ export function generateFallbackSummary(state: GameState, round: number): string
 }
 
 /**
- * 为 AI 狼人构建投票上下文（人类狼人已投票的场景）
+ * 为 AI 狼人构建投票的多消息上下文（人类狼人已投票的场景）
  * 告诉 AI 狼人人类玩家已经投了谁，让 AI 狼人也投票
+ * 结构：system → 稳定历史消息序列 → user(狼队友+历史操作) → user(当前状态+行动指令)
  */
-export function buildWerewolfNightVoteContext(
+export function buildWerewolfNightVoteMessages(
   state: GameState,
   player: Player,
   humanName: string,
   humanTargetId: string,
-): string {
+): ChatMessage[] {
   const werewolfTeammates = state.players.filter(
     p => p.role === 'werewolf' && p.id !== player.id
   );
@@ -748,17 +814,25 @@ export function buildWerewolfNightVoteContext(
   const humanTarget = state.players.find(p => p.id === humanTargetId);
   const cleanHumanName = humanName.replace(/\(你\)$/, '');
 
-  return `## 当前游戏状态
-
-### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（狼人行动）
-
-### 你的狼队友：
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('werewolf', player.name) },
+    {
+      role: 'user',
+      content: `### 你的狼队友：
 ${werewolfTeammates.length > 0
   ? werewolfTeammates.map(w => `- ${getAIName(w)}${w.isAlive ? '（存活）' : '（已死亡）'}`).join('\n')
   : '（你是唯一的狼人，没有队友）'}
 
 ### 你的历史操作：
-${buildPlayerActionHistory(state, player)}
+${buildPlayerActionHistory(state, player)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（狼人行动）
 
 ### 可击杀的目标（所有存活玩家，含狼队友和自己）：
 ${alivePlayers.map(p => `- ${getAIName(p)}`).join('\n')}
@@ -767,21 +841,21 @@ ${alivePlayers.map(p => `- ${getAIName(p)}`).join('\n')}
 ### 你可以选择跟票，也可以根据自己的判断选择不同的目标。
 ### 最终目标将由所有狼人投票决定，得票最多者将被击杀。
 
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
 ---
 现在请你投票选择今晚要击杀的目标（可自刀；⚠️ 狼人不能空刀，系统强制必须选一个目标）。
 请只回复玩家的名字，不要包含其他内容。例如：1号
-🔴 输出前检查：如果你的思考中说了要杀X号，那么你回复的名字必须是X号，保持一致！`;
+🔴 输出前检查：如果你的思考中说了要杀X号，那么你回复的名字必须是X号，保持一致！`,
+    },
+  ];
 }
 
 /**
- * 为预言家 AI 构建查验选择的上下文
+ * 为预言家 AI 构建查验选择的多消息上下文
+ * 结构：system → 稳定历史消息序列 → user(已查验记录) → user(当前状态+行动指令)
  * 预言家知道：自己的身份、之前查验过的结果、存活玩家
  * 预言家不知道：其他玩家的具体身份
  */
-function buildSeerNightContext(state: GameState, player: Player): string {
+function buildSeerNightMessages(state: GameState, player: Player): ChatMessage[] {
   // 从持久化的 seerCheckHistory 获取已查验记录（比解析日志更可靠）
   const checkedIds = new Set<string>();
   const checkedDetails: string[] = [];
@@ -803,12 +877,20 @@ function buildSeerNightContext(state: GameState, player: Player): string {
   // 已查验过的存活玩家
   const alreadyChecked = allAlive.filter(p => checkedIds.has(p.id));
 
-  return `## 当前游戏状态
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('seer', player.name) },
+    {
+      role: 'user',
+      content: `### 📋 你已查验过的玩家（不要重复查验）：
+${checkedDetails.length > 0 ? checkedDetails.join('\n') : '（尚未查验过任何玩家）'}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
 
 ### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（预言家行动）
-
-### 📋 你已查验过的玩家（不要重复查验）：
-${checkedDetails.length > 0 ? checkedDetails.join('\n') : '（尚未查验过任何玩家）'}
 
 ### ✅ 尚未查验的存活玩家（请从以下玩家中选择）：
 ${unchecked.length > 0
@@ -818,39 +900,46 @@ ${unchecked.length > 0
 ${alreadyChecked.length > 0 ? `### ⚠️ 已查验过的存活玩家（不要再查验他们）：
 ${alreadyChecked.map(p => `- ${getAIName(p)}`).join('\n')}` : ''}
 
-### 所有存活玩家：
-${state.players.filter(p => p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
 ---
 现在请你从【尚未查验的存活玩家】中选择一个目标进行查验。
 ⚠️ 重要：请务必选择尚未查验过的玩家，不要重复查验已查验过的玩家。
 请只回复玩家的名字，不要包含其他内容。例如：1号
-🔴 输出前检查：如果你的思考中说了要查验X号，那么你回复的名字必须是X号，保持一致！`;
+🔴 输出前检查：如果你的思考中说了要查验X号，那么你回复的名字必须是X号，保持一致！`,
+    },
+  ];
 }
 
 /**
- * 为女巫 AI 构建用药决策的上下文
+ * 为女巫 AI 构建用药决策的多消息上下文
+ * 结构：system → 稳定历史消息序列 → user(药水状态+历史操作) → user(当前状态+行动指令)
  * 女巫知道：自己的身份、解药/毒药状态、谁被狼人杀害了
  * 女巫不知道：其他玩家的具体身份
  */
-function buildWitchNightContext(state: GameState, player: Player): string {
+function buildWitchNightMessages(state: GameState, player: Player): ChatMessage[] {
   const killedPlayer = state.werewolfTargetId
     ? state.players.find(p => p.id === state.werewolfTargetId)
     : null;
 
-  return `## 当前游戏状态
-
-### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（女巫行动）
-
-### 你的药水状态：
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('witch', player.name) },
+    {
+      role: 'user',
+      content: `### 你的药水状态：
 - 解药：${player.hasAntidote ? '✅ 可用' : '❌ 已使用'}
 - 毒药：${player.hasPoison ? '✅ 可用' : '❌ 已使用'}
 
 ### 你的历史操作：
-${buildPlayerActionHistory(state, player)}
+${buildPlayerActionHistory(state, player)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（女巫行动）
+
+⚠️ 同守同救提醒：如果你用解药救的目标恰好也被守卫守护了，保护会失效，目标依然会死亡（不是平安夜），解药照常消耗。
 
 ${player.hasAntidote && killedPlayer
   ? `### 昨晚死亡的玩家（被狼人选为击杀目标）：${getAIName(killedPlayer)}
@@ -862,27 +951,24 @@ ${killedPlayer.id === player.id
     ? '### 昨晚没有人死亡（注意：这不可能是狼人空刀，狼人每夜必须杀人；）。'
     : '### ⚠️ 你的解药已经用掉了，无法得知当晚的击杀目标（不知道刀口）。'}
 
-### 所有存活玩家：
-${state.players.filter(p => p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
 ---
 现在请你做出决定：
 1. 是否使用解药救人？（⚠️ 被杀的如果是你自己，你有解药就一定要自救！${!player.hasAntidote ? '你的解药已用掉，无法使用。' : ''}）
 2. 是否使用毒药毒杀某人？（谨慎使用，不要随便毒人）
 请用以下JSON格式回复（只回复JSON，不要其他内容）：
 {"useAntidote": ${player.hasAntidote ? 'true/false' : 'false'}, "usePoison": true/false, "poisonTarget": "玩家名或null"}
-🔴 输出前检查：如果你想要毒杀X号，那么poisonTarget字段的值必须是"X号"，保持一致！`;
+🔴 输出前检查：如果你想要毒杀X号，那么poisonTarget字段的值必须是"X号"，保持一致！`,
+    },
+  ];
 }
 
 /**
- * 为守卫 AI 构建守护选择的上下文
+ * 为守卫 AI 构建守护选择的多消息上下文
+ * 结构：system → 稳定历史消息序列 → user(上次守护+历史操作) → user(当前状态+行动指令)
  * 守卫知道：自己的身份、上次守护了谁、存活玩家
  * 守卫不知道：其他玩家的具体身份
  */
-function buildGuardNightContext(state: GameState, player: Player): string {
+function buildGuardNightMessages(state: GameState, player: Player): ChatMessage[] {
   const lastGuarded = player.lastGuardedId
     ? state.players.find(p => p.id === player.lastGuardedId)
     : null;
@@ -892,107 +978,51 @@ function buildGuardNightContext(state: GameState, player: Player): string {
       p.id !== player.lastGuardedId  // 不能连续守护同一人
   );
 
-  return `## 当前游戏状态
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('guard', player.name) },
+    {
+      role: 'user',
+      content: `### 上次守护的玩家：${lastGuarded ? getAIName(lastGuarded) + '（不能连续守护）' : '（这是你第一次行动）'}
+
+### 你的历史操作：
+${buildPlayerActionHistory(state, player)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
 
 ### 本轮：第 ${state.round + 1} 轮 - 夜晚阶段（守卫行动）
 
-### 上次守护的玩家：${lastGuarded ? getAIName(lastGuarded) + '（不能连续守护）' : '（这是你第一次行动）'}
-
-### 你的历史操作：
-${buildPlayerActionHistory(state, player)}
+⚠️ 同守同救提醒：如果你守护的目标恰好也被女巫用解药救了，保护会失效，目标依然会被狼人杀死（不是平安夜）。
 
 ### 可守护的存活玩家：
 ${candidates.map(p => `- ${getAIName(p)}`).join('\n')}
 
-### 所有存活玩家：
-${state.players.filter(p => p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
 ---
 现在请你选择要守护的目标。
 请只回复玩家的名字，不要包含其他内容。例如：1号
-🔴 输出前检查：如果你的思考中说了要守护X号，那么你回复的名字必须是X号，保持一致！`;
+🔴 输出前检查：如果你的思考中说了要守护X号，那么你回复的名字必须是X号，保持一致！`,
+    },
+  ];
 }
 
 // ============ 白天讨论 - 构建 AI 发言上下文 ============
 
 /**
- * 为 AI 玩家构建白天讨论的上下文
+ * 为 AI 玩家构建白天讨论的多消息上下文
+ * 结构：system(规则+核心提醒) → 稳定历史消息序列 → user(存活+角色私密) → user(当前状态+行动指令)
  * 根据角色给予不同的信息
  */
-function buildDiscussionContext(state: GameState, player: Player): string {
-  // 基础信息：所有玩家都知道的
-  let context = `## 当前游戏状态
-
-### 第 ${state.round + 1} 轮 - 白天讨论阶段
-
-### 昨夜情况：`;
-
-  // 收集当前轮所有夜间死亡的玩家
-  const nightDeathNames: string[] = [];
-  for (const log of state.logs) {
-    if (log.round === state.round && log.phase === 'night-result') {
-      const match = log.message.match(/昨晚，(.+?) 死了/);
-      if (match) {
-        nightDeathNames.push(match[1]);
-      }
-    }
-  }
-  if (nightDeathNames.length > 0) {
-    const uniqueNames = [...new Set(nightDeathNames)];
-    context += `\n${uniqueNames.join(' 和 ')} 死了。`;
-  } else {
-    context += `\n昨晚是平安夜，无人死亡。`;
-  }
-
-  // ⚠️ 核心规则提醒：分析死亡情况时必读
-  context += `\n\n### ⚠️ 分析局势时的核心规则提醒（所有玩家必读）：
-- 🚫 **狼人绝对不能空刀！** 系统强制狼人每夜必须选择击杀目标，不存在"狼人故意不杀人"的可能性。
-- 如果出现平安夜（无人死亡），可能原因只有：①守卫守护了被狼人刀的目标 ②女巫使用解药救了被狼人刀的目标。
-- 请在你的发言和分析中**绝对不要提及"可能是狼人空刀""狼人故意不杀人"这类不可能发生的情况**。`;
-
-  // 发言顺序
-  if (state.discussionOrder && state.discussionOrder.length > 0) {
-    const currentIdx = state.currentSpeakerIndex;
-    context += `\n\n### 📋 本轮发言顺序（顺时针，按此顺序依次发言）：
-${state.discussionOrder.map((pid, i) => {
-      const p = state.players.find(pl => pl.id === pid);
-      const name = p ? getAIName(p) : pid;
-      const isSelf = pid === player.id;
-      let tag = '';
-      if (i < currentIdx) {
-        tag = '（已发言 ✅）';
-      } else if (i === currentIdx) {
-        tag = isSelf ? ' ← 【你现在发言 🎤】' : '（即将发言 🎤）';
-      } else {
-        tag = '（未发言）';
-      }
-      return `  ${i + 1}. ${name}${tag}`;
-    }).join('\n')}
-`;
-  }
-
-  context += `
-### 所有存活玩家：
-${state.players.filter(p => p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 已淘汰玩家：
-${state.players.filter(p => !p.isAlive).length > 0
-  ? state.players.filter(p => !p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')
-  : '（暂无）'}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-`;
-
-  // 角色专属信息 - 包含完整历史操作
+function buildDiscussionMessages(state: GameState, player: Player): ChatMessage[] {
+  // ===== 角色私密信息与发言策略（一局内相对稳定） =====
+  let privateInfo = '';
   if (player.role === 'werewolf') {
     const teammates = state.players.filter(
       p => p.role === 'werewolf' && p.id !== player.id
     );
-    context += `\n\n### 🔒 只有你知道的信息（绝对不能泄露！）：
+    privateInfo = `### 🔒 只有你知道的信息（绝对不能泄露！）：
 - 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
 - 你需要在发言中伪装成好人，引导大家投错票。
 - ⚠️ 绝对不能暴露你是狼人！不能说"我们狼人""刀人""击杀""队友"等词！
@@ -1009,7 +1039,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'seer') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 
 ### 📋 你的历史查验记录：
 ${buildPlayerActionHistory(state, player)}
@@ -1023,7 +1053,7 @@ ${buildPlayerActionHistory(state, player)}
   }
 
   if (player.role === 'witch') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你的解药：${player.hasAntidote ? '✅ 可用' : '❌ 已使用'}
 - 你的毒药：${player.hasPoison ? '✅ 可用' : '❌ 已使用'}
 
@@ -1038,7 +1068,7 @@ ${buildPlayerActionHistory(state, player)}
   }
 
   if (player.role === 'guard') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你昨晚守护了：${state.guardProtectTargetId ? getAIName(state.players.find(p => p.id === state.guardProtectTargetId)!) : '无人'}
 
 ### 📋 你的历史操作记录：
@@ -1053,9 +1083,9 @@ ${buildPlayerActionHistory(state, player)}
   }
 
   if (player.role === 'hunter') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是猎人，如果你被投票放逐或被狼人杀害，可以开枪带走一名玩家。
-- ⚠️ 夜晚死亡开枪无声（不暴露猎人身份），白天被放逐开枪会公开猎人和目标。
+- ⚠️ 只要成功开枪（白天被放逐或被狼杀均可），全场就会公开宣布你是猎人以及你带走了谁；被女巫毒死时不能开枪，大家无法确定你是猎人。
 - 考虑好如果要出局时带谁走，但平时发言保持自然。
 
 ### 🎯 发言策略：
@@ -1066,7 +1096,7 @@ ${buildPlayerActionHistory(state, player)}
   }
 
   if (player.role === 'villager') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是普通村民，没有特殊技能，你唯一的武器就是推理和观察。
 - 通过推理和投票帮助好人阵营找出狼人。
 
@@ -1078,10 +1108,54 @@ ${buildPlayerActionHistory(state, player)}
 - 你也可以伪装成神职（比如假跳预言家/女巫）来挡刀保护真神职，但注意不要引起混乱。`;
   }
 
-  context += `\n\n---
+  // ===== 当前状态与任务（动态，放最后） =====
+  const nightDeaths = getNightDeathNames(state, state.round);
+  const lastNightText = nightDeaths.length > 0
+    ? `${nightDeaths.join(' 和 ')} 死了。`
+    : '昨晚是平安夜，无人死亡。';
+
+  const orderText = state.discussionOrder && state.discussionOrder.length > 0
+    ? `\n### 📋 本轮发言顺序（顺时针，按此顺序依次发言）：
+${state.discussionOrder.map((pid, i) => {
+      const p = state.players.find(pl => pl.id === pid);
+      const name = p ? getAIName(p) : pid;
+      const isSelf = pid === player.id;
+      let tag = '';
+      if (i < state.currentSpeakerIndex) {
+        tag = '（已发言 ✅）';
+      } else if (i === state.currentSpeakerIndex) {
+        tag = isSelf ? ' ← 【你现在发言 🎤】' : '（即将发言 🎤）';
+      } else {
+        tag = '（未发言）';
+      }
+      return `  ${i + 1}. ${name}${tag}`;
+    }).join('\n')}`
+    : '';
+
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock(player.role, player.name) },
+    {
+      role: 'user',
+      content: `${buildAliveDeadSituation(state)}
+
+${privateInfo}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 第 ${state.round + 1} 轮 - 白天讨论阶段
+
+### 昨夜情况：
+${lastNightText}
+${orderText}
+
+---
 现在请你发表你的看法（3~6句，逻辑清晰明了）：
 - 💡 分析时请记住：被狼人刀死的玩家大概率是好人（狼人杀好人），被投票放逐的玩家是大家怀疑的对象（可能是好人被冤枉，也可能是狼人被找出）。
-- ⚠️ 请仔细阅读上面「📜 历史轮次回顾」中其他玩家本轮和往轮的发言，你的发言需要基于这些讨论记录来进行分析和回应！
+- ⚠️ 请仔细阅读上面的历史消息中其他玩家本轮和往轮的发言，你的发言需要基于这些讨论记录来进行分析和回应！
 - 你可以回应或反驳其他玩家对你的怀疑，也可以指出其他玩家发言中的矛盾之处。
 - 可以引用具体玩家之前的发言来分析（例如"上一轮X号说...但我认为..."）。
 - ⚠️ 如果你是狼人，必须伪装成好人发言！绝对不能提到任何夜晚行动、狼队友、刀人/杀人等信息！你可以说自己是村民或其他神职（假跳身份）。
@@ -1089,49 +1163,25 @@ ${buildPlayerActionHistory(state, player)}
 - 🎭 如果你是好人神职，可以在合适时机跳身份带队；如果你是村民，可以报村民身份，也可以假装神职挡刀；如果你是狼人，必须伪造成好人身份。
 - 发言要像真实玩家的口语表达，不要像在写论文。
 - 可以质疑、分析、提问，也可以表达不确定。
-- 🚫 再次提醒：分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！`;
-
-  return context;
+- 🚫 再次提醒：分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！`,
+    },
+  ];
 }
 
 // ============ 白天投票 - 构建 AI 投票上下文 ============
 
-function buildVoteContext(state: GameState, player: Player): string {
+function buildVoteMessages(state: GameState, player: Player): ChatMessage[] {
   const candidates = state.players.filter(
     p => p.isAlive && p.id !== player.id
   );
 
-  let context = `## 当前游戏状态
-
-### 第 ${state.round + 1} 轮 - 投票放逐阶段
-`;
-
-  // 本轮发言顺序回顾
-  if (state.discussionOrder && state.discussionOrder.length > 0) {
-    context += `
-### 📋 本轮已完成的发言顺序（顺时针）：
-${state.discussionOrder.map((pid, i) => {
-      const p2 = state.players.find(pl => pl.id === pid);
-      const name2 = p2 ? getAIName(p2) : pid;
-      return `  ${i + 1}. ${name2}（已发言 ✅）`;
-    }).join('\n')}
-`;
-  }
-
-  context += `
-### 可投票的存活玩家：
-${candidates.map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-`;
-
-  // 角色专属信息
+  // ===== 角色私密信息与投票策略（一局内相对稳定，居中） =====
+  let privateInfo = '';
   if (player.role === 'werewolf') {
     const teammates = state.players.filter(
       p => p.role === 'werewolf' && p.id !== player.id
     );
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
 
 ### 🎯 狼人投票策略：
@@ -1147,7 +1197,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'seer') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 
 ### 🎯 预言家投票策略：
 - 如果你查验出了狼人，应优先投票给他
@@ -1160,7 +1210,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'witch') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你的解药：${player.hasAntidote ? '✅ 可用' : '❌ 已使用'}
 - 你的毒药：${player.hasPoison ? '✅ 可用' : '❌ 已使用'}
 
@@ -1175,7 +1225,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'guard') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你昨晚守护了：${state.guardProtectTargetId ? getAIName(state.players.find(p => p.id === state.guardProtectTargetId)!) : '无人'}
 
 ### 🎯 守卫投票策略：
@@ -1188,9 +1238,9 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'hunter') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是猎人，被放逐或杀害时可以开枪带走一人
-- 夜晚死亡开枪无声，白天被放逐开枪会公开猎人和目标
+- 只要成功开枪（白天被放逐或被狼杀均可），全场就会公开宣布你是猎人以及带走目标；被女巫毒死时不能开枪
 
 ### 🎯 猎人投票策略：
 - 作为强神，你的发言可以更强势
@@ -1200,7 +1250,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'villager') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是普通村民，没有特殊技能
 
 ### 🎯 村民投票策略：
@@ -1211,11 +1261,42 @@ ${buildPlayerActionHistory(state, player)}`;
 - 你的每一票都很关键，好人的胜利取决于你！`;
   }
 
-  context += `\n\n---
+  // ===== 当前状态与行动指令（动态，放最后） =====
+  const orderText = state.discussionOrder && state.discussionOrder.length > 0
+    ? `
+### 📋 本轮已完成的发言顺序（顺时针）：
+${state.discussionOrder.map((pid, i) => {
+      const p2 = state.players.find(pl => pl.id === pid);
+      const name2 = p2 ? getAIName(p2) : pid;
+      return `  ${i + 1}. ${name2}（已发言 ✅）`;
+    }).join('\n')}`
+    : '';
+
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock(player.role, player.name) },
+    {
+      role: 'user',
+      content: `${buildAliveDeadSituation(state)}
+
+${privateInfo}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 第 ${state.round + 1} 轮 - 投票放逐阶段
+${orderText}
+
+### 可投票的存活玩家：
+${candidates.map(p => `- ${getAIName(p)}`).join('\n')}
+
+---
 请根据上面的讨论记录（📜 历史轮次回顾）和你的角色信息，选出你认为最应该被放逐的玩家。
 💡 重要：投票放逐=你认为他是狼人/可疑，不是相信他！被投的人是你怀疑的对象，不是被你信任的人！
 ⚠️ 你的投票必须基于讨论中表现出的可疑行为，不能无理由随机投票！
-⚠️ 在讨论记录中，你自己的发言已标注为【你自己】，请勿投票给自己！
+⚠️ 请勿投票给自己！你在这局游戏中的名字是「${getAIName(player)}」：历史发言中以这个名字出现的话就是你自己说的话，可以用来复盘分析，但绝不能投票给自己！
 🚫 分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！
 
 请简要说明投票理由（不超过30字，要具体，不能只说"可疑"，要说清楚哪里可疑）。
@@ -1231,58 +1312,27 @@ ${buildPlayerActionHistory(state, player)}`;
 🔴 输出前必须检查一致性（非常重要）：
 1. 检查「|」前面写的投票对象名字，和你的理由中实际要投的人是否一致 —— 绝对不能出现理由说投给A、结果投票对象写了B的情况！
 2. 如果你在理由中写了"投给X号"，那么「|」前面的名字必须就是X号
-3. 请再读一遍你的回复，确认投票对象和投票理由指向同一个人`;
-
-  return context;
+3. 请再读一遍你的回复，确认投票对象和投票理由指向同一个人`,
+    },
+  ];
 }
 
 // ============ 平票补发言 - 构建 AI 补发言上下文 ============
 
-function buildTieSpeechContext(state: GameState, player: Player): string {
+function buildTieSpeechMessages(state: GameState, player: Player): ChatMessage[] {
   const otherTiedIds = state.tiePlayerIds.filter(id => id !== player.id);
   const otherTiedNames = otherTiedIds.map(id => {
     const p = state.players.find(pl => pl.id === id);
     return p ? getAIName(p) : '未知';
   }).join('、');
 
-  let context = `## 当前游戏状态
-
-### 第 ${state.round + 1} 轮 - ⚖️ 平票补充发言阶段
-`;
-
-  // 本轮发言顺序回顾
-  if (state.discussionOrder && state.discussionOrder.length > 0) {
-    context += `
-### 📋 本轮已完成的发言顺序（顺时针）：
-${state.discussionOrder.map((pid, i) => {
-      const p2 = state.players.find(pl => pl.id === pid);
-      const name2 = p2 ? getAIName(p2) : pid;
-      return `  ${i + 1}. ${name2}（已发言 ✅）`;
-    }).join('\n')}
-`;
-  }
-
-  context += `
-### 投票结果：
-上一轮投票你和 ${otherTiedNames} 获得了相同的票数（平票）。
-现在需要你来补充发言为自己辩护，之后其他玩家会重新投票。
-
-### 和你平票的玩家：
-${otherTiedNames ? `${otherTiedNames}` : '（只有你一人？这种情况不应该出现）'}
-
-### 所有存活玩家：
-${state.players.filter(p => p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-`;
-
-  // 角色专属信息
+  // ===== 角色私密信息与辩护策略（一局内相对稳定，居中） =====
+  let privateInfo = '';
   if (player.role === 'werewolf') {
     const teammates = state.players.filter(
       p => p.role === 'werewolf' && p.id !== player.id
     );
-    context += `\n\n### 🔒 只有你知道的信息（绝对不能泄露！）：
+    privateInfo = `### 🔒 只有你知道的信息（绝对不能泄露！）：
 - 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
 - ⚠️ 你正在被怀疑！你需要为自己辩护！
 - ⚠️ 绝对不能暴露你是狼人！不能说"我们狼人""刀人""击杀""队友"等词！
@@ -1297,7 +1347,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'seer') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 
 ### 🎯 预言家平票辩护策略：
 - 你被平票了，需要为自己辩护
@@ -1310,7 +1360,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'witch') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你的解药：${player.hasAntidote ? '✅ 可用' : '❌ 已使用'}
 - 你的毒药：${player.hasPoison ? '✅ 可用' : '❌ 已使用'}
 
@@ -1325,7 +1375,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'guard') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你昨晚守护了：${state.guardProtectTargetId ? getAIName(state.players.find(p => p.id === state.guardProtectTargetId)!) : '无人'}
 
 ### 🎯 守卫平票辩护策略：
@@ -1338,20 +1388,19 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'hunter') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是猎人，被投票出局时可以开枪带走一人
-- 夜晚死亡开枪无声，白天被放逐开枪会公开猎人和目标
+- 只要成功开枪（白天被放逐或被狼杀均可），全场就会公开宣布你是猎人以及带走目标；被女巫毒死时不能开枪
 - 你不怕被投票出局，但也要为自己辩护
 
 ### 🎯 猎人平票辩护策略：
 - 你被平票了，但作为猎人你并不怕出局
 - 可以强硬表态，让别人重新考虑投票
 - 注意观察谁在极力想推你出局，那很可能是狼人`;
-
   }
 
   if (player.role === 'villager') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是普通村民，没有特殊技能
 - 你被平票了，需要为自己辩护
 
@@ -1362,7 +1411,42 @@ ${buildPlayerActionHistory(state, player)}`;
 - 你的发言可能决定你的生死！`;
   }
 
-  context += `\n\n---
+  // ===== 当前状态与行动指令（动态，放最后） =====
+  const orderText = state.discussionOrder && state.discussionOrder.length > 0
+    ? `
+### 📋 本轮已完成的发言顺序（顺时针）：
+${state.discussionOrder.map((pid, i) => {
+      const p2 = state.players.find(pl => pl.id === pid);
+      const name2 = p2 ? getAIName(p2) : pid;
+      return `  ${i + 1}. ${name2}（已发言 ✅）`;
+    }).join('\n')}`
+    : '';
+
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock(player.role, player.name) },
+    {
+      role: 'user',
+      content: `${buildAliveDeadSituation(state)}
+
+${privateInfo}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 第 ${state.round + 1} 轮 - ⚖️ 平票补充发言阶段
+${orderText}
+
+### 投票结果：
+上一轮投票你和 ${otherTiedNames} 获得了相同的票数（平票）。
+现在需要你来补充发言为自己辩护，之后其他玩家会重新投票。
+
+### 和你平票的玩家：
+${otherTiedNames ? `${otherTiedNames}` : '（只有你一人？这种情况不应该出现）'}
+
+---
 ⚖️ 你现在处于平票阶段，需要为自己补充辩护（3~6句，逻辑清晰明了），说服其他玩家不要投你。
 
 注意：
@@ -1371,14 +1455,14 @@ ${buildPlayerActionHistory(state, player)}`;
 - 可以指出其他平票玩家更可疑的地方，引用他们之前发言中的矛盾
 - 保持自然的口语表达，不要像在写论文
 - 不要泄露你的角色私密信息（如狼队友、查验结果等），除非你确信需要跳身份
-- 🚫 分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！`;
-
-  return context;
+- 🚫 分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！`,
+    },
+  ];
 }
 
 // ============ 平票补投 - 构建 AI 补投票上下文 ============
 
-function buildTieVoteContext(state: GameState, player: Player): string {
+function buildTieVoteMessages(state: GameState, player: Player): ChatMessage[] {
   const tiedPlayers = state.tiePlayerIds.map(id => {
     const p = state.players.find(pl => pl.id === id);
     return p ? getAIName(p) : '未知';
@@ -1389,43 +1473,13 @@ function buildTieVoteContext(state: GameState, player: Player): string {
     p => p.isAlive && state.tiePlayerIds.includes(p.id) && p.id !== player.id
   );
 
-  let context = `## 当前游戏状态
-
-### 第 ${state.round + 1} 轮 - ⚖️ 平票补投阶段
-`;
-
-  // 本轮发言顺序回顾
-  if (state.discussionOrder && state.discussionOrder.length > 0) {
-    context += `
-### 📋 本轮已完成的发言顺序（顺时针）：
-${state.discussionOrder.map((pid, i) => {
-      const p2 = state.players.find(pl => pl.id === pid);
-      const name2 = p2 ? getAIName(p2) : pid;
-      return `  ${i + 1}. ${name2}（已发言 ✅）`;
-    }).join('\n')}
-`;
-  }
-
-  context += `
-### 平票玩家（只能投给他们）：
-${tiedPlayers}
-
-### 可投票的玩家：
-${candidates.map(p => `- ${getAIName(p)}`).join('\n')}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, player.id)}
-
-### ⚖️ 平票补投说明：
-上一轮投票出现了平票，平票玩家已经进行了补充发言。现在你必须从平票玩家中选择一人投票放逐，不能弃票！
-`;
-
-  // 角色专属信息
+  // ===== 角色私密信息与补投策略（一局内相对稳定，居中） =====
+  let privateInfo = '';
   if (player.role === 'werewolf') {
     const teammates = state.players.filter(
       p => p.role === 'werewolf' && p.id !== player.id
     );
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
 - ⚠️ 投票给好人，保护狼队友！
 
@@ -1439,7 +1493,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'seer') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 
 ### 🎯 预言家补投策略：
 - 你必须在平票玩家中选择一人投票
@@ -1451,7 +1505,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'witch') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你的解药：${player.hasAntidote ? '✅ 可用' : '❌ 已使用'}
 - 你的毒药：${player.hasPoison ? '✅ 可用' : '❌ 已使用'}
 
@@ -1465,7 +1519,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'guard') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你昨晚守护了：${state.guardProtectTargetId ? getAIName(state.players.find(p => p.id === state.guardProtectTargetId)!) : '无人'}
 
 ### 🎯 守卫补投策略：
@@ -1477,9 +1531,9 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'hunter') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是猎人，被投票出局时可以开枪带走一人
-- 夜晚死亡开枪无声，白天被放逐开枪会公开猎人和目标
+- 只要成功开枪（白天被放逐或被狼杀均可），全场就会公开宣布你是猎人以及带走目标；被女巫毒死时不能开枪
 
 ### 🎯 猎人补投策略：
 - 你必须在平票玩家中选择一人投票
@@ -1487,7 +1541,7 @@ ${buildPlayerActionHistory(state, player)}`;
   }
 
   if (player.role === 'villager') {
-    context += `\n\n### 🔒 只有你知道的信息：
+    privateInfo = `### 🔒 只有你知道的信息：
 - 你是普通村民，没有特殊技能
 
 ### 🎯 村民补投策略：
@@ -1496,11 +1550,48 @@ ${buildPlayerActionHistory(state, player)}`;
 - 不要盲目跟票，要有独立判断`;
   }
 
-  context += `\n\n---
+  // ===== 当前状态与行动指令（动态，放最后） =====
+  const orderText = state.discussionOrder && state.discussionOrder.length > 0
+    ? `
+### 📋 本轮已完成的发言顺序（顺时针）：
+${state.discussionOrder.map((pid, i) => {
+      const p2 = state.players.find(pl => pl.id === pid);
+      const name2 = p2 ? getAIName(p2) : pid;
+      return `  ${i + 1}. ${name2}（已发言 ✅）`;
+    }).join('\n')}`
+    : '';
+
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock(player.role, player.name) },
+    {
+      role: 'user',
+      content: `${buildAliveDeadSituation(state)}
+
+${privateInfo}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 第 ${state.round + 1} 轮 - ⚖️ 平票补投阶段
+${orderText}
+
+### 平票玩家（只能投给他们）：
+${tiedPlayers}
+
+### 可投票的玩家：
+${candidates.map(p => `- ${getAIName(p)}`).join('\n')}
+
+### ⚖️ 平票补投说明：
+上一轮投票出现了平票，平票玩家已经进行了补充发言。现在你必须从平票玩家中选择一人投票放逐，不能弃票！
+
+---
 请根据平票玩家的补充发言和之前的讨论记录，从平票玩家中选择你要投票放逐的人。
 💡 重要：投票放逐=你认为他是狼人/可疑！被投的人是你怀疑的对象，不是被你信任的人！
 ⚠️ 仔细分析他们在平票补充发言中的表现，谁更可疑就投谁。
-⚠️ 在讨论记录中，你自己的发言已标注为【你自己】，请勿投票给自己！
+⚠️ 请勿投票给自己！你在这局游戏中的名字是「${getAIName(player)}」：历史发言中以这个名字出现的话就是你自己说的话，可以用来复盘分析，但绝不能投票给自己！
 🚫 分析局势时绝对不要提及"狼人空刀""狼人故意不杀人"等不可能发生的情况！
 
 简要说明投票理由（不超过30字，要具体，引用发言中的矛盾点）。
@@ -1515,9 +1606,9 @@ ${buildPlayerActionHistory(state, player)}`;
 🔴 输出前必须检查一致性（非常重要）：
 1. 检查「|」前面写的投票对象名字，和你的理由中实际要投的人是否一致 —— 绝对不能出现理由说投给A、结果投票对象写了B的情况！
 2. 如果你在理由中写了"投给X号"，那么「|」前面的名字必须就是X号
-3. 请再读一遍你的回复，确认投票对象和投票理由指向同一个人`;
-
-  return context;
+3. 请再读一遍你的回复，确认投票对象和投票理由指向同一个人`,
+    },
+  ];
 }
 
 // ============ API 调用函数 ============
@@ -1569,9 +1660,12 @@ export async function callLLM(messages: ChatMessage[], temperature?: number): Pr
     body: JSON.stringify({
       model: config.model,
       messages,
+      reasoning_effort: 'low',
       max_tokens: config.maxTokens,
       temperature: temperature ?? config.temperature,
-      extra_body: { enable_thinking: config.thinking },
+      // DeepSeek 官方格式（deepseek-v4 系列）：thinking.type 控制思考模式开关
+      extra_body: { thinking: { type: config.thinking ? 'enabled' : 'disabled' } },
+      // 以下为旧参数，保留以兼容 deepseek-chat/reasoner 等旧模型
       chat_template_kwargs: { enable_thinking: config.thinking },
       enable_thinking: config.thinking,
     }),
@@ -1625,10 +1719,7 @@ export async function aiWerewolfChooseTarget(state: GameState): Promise<string |
   const votes: Map<string, number> = new Map();
   const results = await Promise.allSettled(
     aliveWerewolves.map(async (wolf) => {
-      const messages: ChatMessage[] = [
-        { role: 'system', content: buildRoleSystemPrompt('werewolf', wolf.name, state) },
-        { role: 'user', content: buildWerewolfNightContext(state, wolf) },
-      ];
+      const messages = buildWerewolfNightMessages(state, wolf);
 
       const response = await callLLM(messages);
       // 从回复中提取玩家名字
@@ -1691,10 +1782,7 @@ export async function aiSeerChooseTarget(state: GameState): Promise<string | nul
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt('seer', seer.name, state) },
-      { role: 'user', content: buildSeerNightContext(state, seer) },
-    ];
+    const messages = buildSeerNightMessages(state, seer);
 
     const response = await callLLM(messages);
     const name = extractPlayerName(response, state);
@@ -1736,10 +1824,7 @@ export async function aiWitchDecide(state: GameState): Promise<{
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt('witch', witch.name, state) },
-      { role: 'user', content: buildWitchNightContext(state, witch) },
-    ];
+    const messages = buildWitchNightMessages(state, witch);
 
     const response = await callLLM(messages);
     // 解析 JSON
@@ -1778,10 +1863,7 @@ export async function aiGuardChooseTarget(state: GameState): Promise<string | nu
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt('guard', guard.name, state) },
-      { role: 'user', content: buildGuardNightContext(state, guard) },
-    ];
+    const messages = buildGuardNightMessages(state, guard);
 
     const response = await callLLM(messages);
     const name = extractPlayerName(response, state);
@@ -1806,10 +1888,7 @@ export async function aiGenerateDiscussion(
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt(player.role, player.name, state) },
-      { role: 'user', content: buildDiscussionContext(state, player) },
-    ];
+    const messages = buildDiscussionMessages(state, player);
 
     const response = await callLLM(messages, 0.9);
     // 清理回复（去掉引号、多余空格等）
@@ -1831,10 +1910,7 @@ export async function aiGenerateTieSpeech(
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt(player.role, player.name, state) },
-      { role: 'user', content: buildTieSpeechContext(state, player) },
-    ];
+    const messages = buildTieSpeechMessages(state, player);
 
     const response = await callLLM(messages, 0.9);
     return cleanDiscussionResponse(response);
@@ -1860,10 +1936,7 @@ export async function aiTieVote(
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt(player.role, player.name, state) },
-      { role: 'user', content: buildTieVoteContext(state, player) },
-    ];
+    const messages = buildTieVoteMessages(state, player);
 
     const response = await callLLM(messages);
 
@@ -1910,17 +1983,15 @@ export async function aiVote(
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt(player.role, player.name, state) },
-      { role: 'user', content: buildVoteContext(state, player) },
-    ];
+    const messages = buildVoteMessages(state, player);
 
     const response = await callLLM(messages);
 
     // 解析格式：玩家名字|投票理由
+    const formatted = response.includes('|');
     let name: string;
     let reason = '';
-    if (response.includes('|')) {
+    if (formatted) {
       const parts = response.split('|');
       name = parts[0].trim();
       reason = parts.slice(1).join('|').trim();
@@ -1928,10 +1999,16 @@ export async function aiVote(
       name = response.trim();
     }
 
+    // 弃票检测：不用 == "弃票" 精确匹配，而是对整个目标文本做包含搜索。
+    // 按格式回复时检测 "|" 之前的名字区；未按格式时检测整段回复（如
+    // "弃票\n\n首夜信息量不足，10号无人对跳暂信……"）。
+    // 必须放在 extractPlayerName 之前，避免正文提到某玩家名却被误判为投给他。
+    if (name.includes('弃票') || name.trim().toLowerCase() === 'skip') {
+      return { targetId: 'skip', reason };
+    }
+
     // 用 extractPlayerName 从解析出的名字中提取
     name = extractPlayerName(name, state);
-
-    if (name === '弃票' || name === 'skip') return { targetId: 'skip', reason };
 
     const targetId = findPlayerIdByName(name, state);
     if (targetId && targetId !== player.id) return { targetId, reason };
@@ -2046,17 +2123,29 @@ function fallbackDiscussion(player: Player, state: GameState): string {
 // ============ 猎人开枪决策 ============
 
 /**
- * 为猎人 AI 构建开枪选择目标的上下文
+ * 为猎人 AI 构建开枪选择目标的多消息上下文
+ * 结构：system → 稳定历史消息序列 → user(历史操作) → user(当前状态+行动指令)
  * @param isNightDeath true=夜晚被狼人杀害触发，false=白天被投票放逐触发
  */
-function buildHunterShootContext(state: GameState, hunter: Player, isNightDeath: boolean): string {
+function buildHunterShootMessages(state: GameState, hunter: Player, isNightDeath: boolean): ChatMessage[] {
   const aliveOthers = state.players.filter(p => p.isAlive && p.id !== hunter.id);
 
   const triggerDesc = isNightDeath
-    ? '你**在夜晚被狼人杀害**，现在触发猎人技能：开枪是**无声的**，全场不会知道你是猎人，只会看到多死了一个人。请选择一个最可疑的目标带走，为好人阵营做最后贡献。'
+    ? '你**在夜晚被狼人杀害**，现在触发猎人技能：白天会**公开宣布**你是猎人，以及你开枪带走了谁。请选择一个最可疑的目标带走，为好人阵营做最后贡献。'
     : '你**在白天被投票放逐**，现在触发猎人技能：全场会**公开宣布**你是猎人，以及你开枪带走了谁。请利用这个机会带走你怀疑的目标。';
 
-  return `## 当前游戏状态
+  return [
+    { role: 'system', content: buildSystemPrompt(state) },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock('hunter', hunter.name) },
+    {
+      role: 'user',
+      content: `### 你的历史操作：
+${buildPlayerActionHistory(state, hunter)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
 
 ### 第 ${state.round + 1} 轮 - 猎人临死开枪
 
@@ -2066,25 +2155,16 @@ function buildHunterShootContext(state: GameState, hunter: Player, isNightDeath:
 ### ⚠️ 当前触发场景：
 ${triggerDesc}
 
-### 你的历史操作：
-${buildPlayerActionHistory(state, hunter)}
-
 ### 可带走的目标（所有存活的其他玩家）：
 ${aliveOthers.length > 0
   ? aliveOthers.map(p => `- ${getAIName(p)}`).join('\n')
   : '（没有可带走的目标）'}
 
-### 已淘汰玩家：
-${state.players.filter(p => !p.isAlive).length > 0
-  ? state.players.filter(p => !p.isAlive).map(p => `- ${getAIName(p)}`).join('\n')
-  : '（暂无）'}
-
-### 📜 历史轮次回顾（含讨论与投票结果）：
-${getRoundHistory(state, hunter.id)}
-
 ---
 请选择你要开枪带走的目标。你只能带走一名存活玩家（不能带走自己）。
-请只回复玩家的名字，不要包含其他内容。例如：张三`;
+请只回复玩家的名字，不要包含其他内容。例如：张三`,
+    },
+  ];
 }
 
 /**
@@ -2109,10 +2189,7 @@ export async function aiHunterChooseTarget(state: GameState, hunterId: string, i
   }
 
   try {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: buildRoleSystemPrompt('hunter', hunter.name, state) },
-      { role: 'user', content: buildHunterShootContext(state, hunter, isNightDeath) },
-    ];
+    const messages = buildHunterShootMessages(state, hunter, isNightDeath);
 
     const response = await callLLM(messages);
     const name = extractPlayerName(response, state);
@@ -2124,44 +2201,146 @@ export async function aiHunterChooseTarget(state: GameState, hunterId: string, i
   }
 }
 
+// ============ 遗言生成 ============
+
+/**
+ * 为被放逐的 AI 玩家构建遗言的多消息上下文
+ * 结构：system(规则+遗言时刻) → 稳定历史消息序列 → user(存活/角色私密+历史操作) → user(当前状态+投票详情+遗言要求)
+ */
+export function buildLastWordsMessages(state: GameState, exiledPlayer: Player): ChatMessage[] {
+  const roleName = ROLE_NAMES[exiledPlayer.role];
+
+  // 构建投票详情
+  const voteRecords = state.previousDayVotes || {};
+  const playerMap = new Map(state.players.map(p => [p.id, p]));
+  const exiledVoters: string[] = [];
+  const otherVoters: string[] = [];
+  for (const [voterId, targetId] of Object.entries(voteRecords)) {
+    const voter = playerMap.get(voterId);
+    if (!voter) continue;
+    const voterName = getAIName(voter);
+    const target = targetId === 'skip' ? null : playerMap.get(targetId);
+    const targetName = targetId === 'skip' ? '弃票' : (target ? getAIName(target) : '未知');
+    const entry = `${voterName}→${targetName}`;
+    if (targetId === exiledPlayer.id) {
+      exiledVoters.push(entry);
+    } else {
+      otherVoters.push(entry);
+    }
+  }
+  const voteCount = exiledVoters.length;
+  const voteDetailStr = [
+    `投给 ${getAIName(exiledPlayer)} 的玩家（${voteCount}票）：`,
+    ...(exiledVoters.length > 0 ? exiledVoters.map(v => `  - ${v}`) : ['  （无）']),
+    '',
+    '其他投票：',
+    ...(otherVoters.length > 0 ? otherVoters.map(v => `  - ${v}`) : ['  （无）']),
+  ].join('\n');
+
+  // 构建角色专属信息（遗言视角）
+  let rolePrivateInfo = '';
+  if (exiledPlayer.role === 'werewolf') {
+    const teammates = state.players.filter(
+      p => p.role === 'werewolf' && p.id !== exiledPlayer.id
+    );
+    rolePrivateInfo = `- 你是狼人，你的狼队友是：${teammates.length > 0 ? teammates.map(w => `${getAIName(w)}${w.isAlive ? '' : '（已死亡）'}`).join('、') : '（你是唯一的狼人）'}
+- 你的目标是淘汰好人阵营，可以在遗言中混淆视听
+- ⚠️ 遗言中绝对不要暴露狼队友的身份，但可以暗示某些好人是狼
+- 可以把嫌疑引向好人，说怀疑某人的表现`;
+  } else if (exiledPlayer.role === 'seer') {
+    rolePrivateInfo = '- 你是预言家，可以在遗言中透露你的查验信息来帮助好人阵营\n- 如果查到了狼人，一定要在遗言中说出来\n- 如果没有查到狼人，也要把你查验过的好人告诉大家，帮助缩小范围';
+  } else if (exiledPlayer.role === 'witch') {
+    rolePrivateInfo = `- 你是女巫
+- 你的解药：${exiledPlayer.hasAntidote ? '✅ 可用（但你已经死了，无法使用）' : '❌ 已使用'}
+- 你的毒药：${exiledPlayer.hasPoison ? '✅ 可用（但你已经死了，无法使用）' : '❌ 已使用'}
+- 如果你用过药，可以在遗言中透露相关信息帮助好人`;
+  } else if (exiledPlayer.role === 'guard') {
+    rolePrivateInfo = '- 你是守卫，可以在遗言中透露你的守护记录帮助好人分析';
+  } else if (exiledPlayer.role === 'hunter') {
+    rolePrivateInfo = '- 你是猎人，如果你已经开了枪，可以在遗言中表达你的感受和判断';
+  } else if (exiledPlayer.role === 'villager') {
+    rolePrivateInfo = '- 你是普通村民，没有特殊信息\n- 可以基于你在讨论中观察到的异常行为来分析谁最可疑';
+  }
+
+  return [
+    {
+      role: 'system',
+      content: buildSystemPrompt(state)
+        + '\n\n你刚刚在本轮白天被投票放逐出局，这是你发表遗言的时刻。',
+    },
+    ...buildGameHistoryMessages(state),
+    { role: 'user', content: buildPlayerIdentityBlock(exiledPlayer.role, exiledPlayer.name) },
+    {
+      role: 'user',
+      content: `${buildAliveDeadSituation(state)}
+
+### 🔒 只有你知道的信息：
+${rolePrivateInfo}
+
+### 📋 你的历史操作记录：
+${buildPlayerActionHistory(state, exiledPlayer)}`,
+    },
+    {
+      role: 'user',
+      content: `## 当前游戏状态
+
+### 第 ${state.round + 1} 轮 - 遗言阶段
+
+### ⚠️ 你被投票放逐出局了！
+- 你的名字：${getAIName(exiledPlayer)}
+- 你的身份：${roleName}
+- 你获得了 ${voteCount} 票
+
+### 🗳️ 本轮投票详情：
+${voteDetailStr}
+
+---
+你在本轮白天被投票放逐，这是你最后一次发言机会。请发表一段有质量的遗言。
+
+遗言要求：
+- 根据你的角色身份和阵营立场来发表合理的遗言
+- 可以基于讨论中的信息和投票结果来分析场上局势
+${exiledPlayer.role === 'werewolf' ? '- ⚠️ 你是狼人，遗言中要混淆视听，可以暗示好人是狼人，但绝对不能暴露你的狼队友！' : ''}
+${exiledPlayer.role === 'seer' ? '- 你是预言家，如果查验到了狼人一定要说出来，遗言是好人的最后希望' : ''}
+- 发言长度：100-500字，要有实质内容，不要空洞
+
+请严格按照以下格式回复（只回复遗言内容，不要加任何前缀、标签或说明）：
+你的遗言内容`,
+    },
+  ];
+}
+
 // ============ MVP 评选 ============
 
 /**
  * 游戏结束后，调用大模型评选本局 MVP
+ *
+ * 消息组装与正常玩家调用保持一致（结构同各 buildXxxMessages）：
+ *   system：buildSystemPrompt(state) —— 同一份公共规则前缀
+ *   历史：buildGameHistoryMessages(state) —— 同一份「逐轮消息 + 历史轮折叠」公共历史
+ *   user：上帝视角信息 + 评选任务（MVP 的唯一私有差异，置于消息尾部）
+ * 这样 MVP 与所有玩家调用共享同一段 system+history 前缀（无身份私有内容），
+ * 对局过程中任意一次玩家调用命中缓存后，MVP 可直接复用同一前缀缓存。
  */
 export async function aiSelectMVP(state: GameState): Promise<{ playerId: string; reason: string } | null> {
   if (!isAIConfigured()) return null;
 
   const allPlayers = state.players;
 
-  // 构建上帝视角的完整信息
-  let context = `## 本局游戏结束 - MVP 评选
+  // 上帝视角信息与评选任务（消息尾部私有部分）
+  const taskContent = `## 本局游戏结束 - MVP 评选
+
+你现在是一名中立的 MVP 评委（不再扮演任何场上玩家），请使用上帝视角公正评选。
 
 ### 游戏结果：
 ${state.gameResult === 'werewolf-win' ? '狼人阵营获胜！' : '村民阵营获胜！'}
 
-### 所有玩家身份（上帝视角）：
-${allPlayers.map(p => `- ${p.name.replace(/\(你\)$/, '')}：${ROLE_NAMES[p.role]}（${p.isAlive ? '存活' : '已淘汰'}）`).join('\n')}
-
-### 所有讨论发言记录：
-${state.discussionMessages.map(m => `- [第${m.round + 1}轮] ${m.playerName.replace(/\(你\)$/, '')}：${m.content}`).join('\n')}
-
-### 投票记录：
-${Array.from(new Set(state.discussionMessages.map(m => m.round))).map(round => {
-  const voteDetails: string[] = [];
-  for (const [voterId, targetId] of Object.entries(state.previousDayVotes || {})) {
-    const voter = allPlayers.find(p => p.id === voterId);
-    const target = allPlayers.find(p => p.id === targetId) || { name: '弃票' };
-    if (voter) voteDetails.push(`${voter.name.replace(/\(你\)$/, '')}→${typeof target === 'string' ? target : target.name.replace(/\(你\)$/, '')}`);
-  }
-  return voteDetails.length > 0 ? `- 第${round + 1}轮投票：${voteDetails.join('，')}` : '';
-}).filter(Boolean).join('\n') || '（无记录）'}
-
-### 游戏日志：
-${state.logs.map(l => `- [第${l.round + 1}轮] ${l.message}`).join('\n')}
+### 所有玩家真实身份（上帝视角，仅供评委参考）：
+${allPlayers.map(p => `- ${getAIName(p)}：${ROLE_NAMES[p.role]}（${p.isAlive ? '存活' : '已淘汰'}）`).join('\n')}
 
 ---
-请你根据以上完整的上帝视角信息，评选出本局游戏的 MVP（最有价值玩家）。
+请根据上方消息中提供的完整对局记录（逐轮夜晚结果、讨论发言、遗言、投票与白天结果；
+已结束的历史轮以「轮次回顾」摘要呈现）以及上帝视角的真实身份，评选出本局游戏的 MVP（最有价值玩家）。
 
 评选标准：
 - 为所在阵营的胜利做出了最关键贡献
@@ -2174,13 +2353,15 @@ ${state.logs.map(l => `- [第${l.round + 1}轮] ${l.message}`).join('\n')}
 🔴 输出前检查：playerName字段的名字必须和思考中的那个玩家是同一个人，保持一致！`;
 
   try {
+    // 与正常玩家调用完全一致的组装：公共 system + 公共历史 + 尾部上帝视角任务
     const messages: ChatMessage[] = [
-      { role: 'system', content: '你是一个狼人杀游戏的MVP评委。请根据完整的上帝视角信息公正评选。只回复JSON。' },
-      { role: 'user', content: context },
+      { role: 'system', content: buildSystemPrompt(state) },
+      ...buildGameHistoryMessages(state),
+      { role: 'user', content: taskContent },
     ];
 
     const response = await callLLM(messages);
-    
+
     // 解析 JSON
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
