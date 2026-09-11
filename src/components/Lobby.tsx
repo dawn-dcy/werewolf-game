@@ -112,7 +112,7 @@ const Lobby: React.FC<LobbyProps> = ({ username, selectedCount, onSelectCount, o
               <p><strong className="text-purple-400">🔮 预言家：</strong>每晚可以查验一名玩家的身份。</p>
             </div>
             <div className="space-y-2">
-              <p><strong className="text-cyan-400">🧪 女巫：</strong>拥有一瓶解药和一瓶毒药，各可使用一次。</p>
+              <p><strong className="text-cyan-400">🧪 女巫：</strong>拥有一瓶解药和一瓶毒药，各可使用一次；解药未使用前每晚知晓狼人刀口（被刀的人自己并不知情），用掉后不再得知。</p>
               <p><strong className="text-orange-400">🏹 猎人：</strong>被放逐或被狼人杀害时可以开枪带走一人，开枪后全场公开猎人身份及带走目标；被女巫毒死时不能开枪，只报死亡。</p>
               <p><strong className="text-green-400">🛡️ 守卫：</strong>每晚可守护一名玩家，不能连续守同一人。</p>
             </div>
@@ -121,7 +121,10 @@ const Lobby: React.FC<LobbyProps> = ({ username, selectedCount, onSelectCount, o
             ⚠️ 唯一身份规则：所有神职（预言家、女巫、猎人、守卫）都只有1个。如果有人跳的身份和你相同，那他100%在说谎，大概率是狼人悍跳。
           </p>
           <p className="mt-2 text-xs text-primary-500">
-            ⚠️ 遗言声明：被投票放逐的玩家发表的遗言内容及其声称的身份均不一定真实，可能包含误导信息，请根据局势自行判断其可信度。
+            ⚠️ 遗言声明：被投票放逐或被猎人开枪带走的玩家发表的遗言内容及其声称的身份均不一定真实，可能包含误导信息，请根据局势自行判断其可信度。
+          </p>
+          <p className="mt-2 text-xs text-primary-500">
+            🔒 刀口保密：每晚狼人袭击的目标只有狼人自己和解药未使用的女巫知道；被刀者本人即使被救活也不知情，发言时不要声称或断言谁昨晚被刀。
           </p>
         </div>
       </div>

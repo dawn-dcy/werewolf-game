@@ -1735,7 +1735,7 @@ function getFallbackSpeech(player: Player): string {
 const lastWordsFallbacks: Record<string, string[]> = {
   werewolf: [
     '哼，你们会后悔的...真正的狼人还在你们中间！',
-    '虽然我被投出去了，但我要说——好人阵营的判断力真是让人失望。',
+    '虽然我出局了，但我要说——好人阵营的判断力真是让人失望。',
     '好吧，我承认我的发言确实有漏洞，但请你们仔细想想真正可疑的人。',
   ],
   seer: [
@@ -1750,12 +1750,12 @@ const lastWordsFallbacks: Record<string, string[]> = {
   ],
   guard: [
     '我已经尽力守护了，接下来就看你们的了。',
-    '虽然我被投出去了，但我相信好人的判断力。',
+    '虽然我出局了，但我相信好人的判断力。',
     '大家加油，胜利一定属于正义的一方。',
   ],
   hunter: [
     '没想到我会以这种方式离开...但我的子弹不会浪费！',
-    '虽然被投出去了，但我无怨无悔。好人加油！',
+    '虽然出局了，但我无怨无悔。好人加油！',
     '这就是我的结局吗？好吧，至少我带走了一个。',
   ],
   villager: [
@@ -1770,10 +1770,14 @@ let generatingLastWords = false;
 async function generateAILastWords(state: GameState, exiledPlayer: Player) {
   let content: string | null = null;
 
-  // 调用 LLM 生成遗言（多消息结构：system → 稳定历史 → 角色私密 → 投票详情与遗言指令）
+  // 调用 LLM 生成遗言（多消息结构：system → 稳定历史 → 角色私密 → 出局原因与遗言指令）
   if (isAIConfigured()) {
     try {
-      const response = await callLLM(buildLastWordsMessages(state, exiledPlayer));
+      // 判断本玩家是被投票放逐还是被猎人开枪带走（日志精确匹配「带走了 X」，与 DayPhase UI 判定保持一致）
+      const isHunterShot = state.logs.some(
+        l => l.round === state.round && l.message.includes(`带走了 ${exiledPlayer.name}`)
+      );
+      const response = await callLLM(buildLastWordsMessages(state, exiledPlayer, isHunterShot ? 'shot' : 'exiled'));
       if (response && response.length >= 20 && response.length <= 500) {
         content = response;
       }
